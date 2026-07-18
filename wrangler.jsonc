@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ai-nutrition-advisor",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "vars": {
+    "ENVIRONMENT": "production",
+    "ENABLE_DEMO_AUTH": "false",
+    "EMAIL_ENABLED": "false",
+    "EMAIL_FROM": "noreply@example.com",
+    "APP_BASE_URL": "https://example.com",
+    "APPLE_ENABLED": "false",
+    "GARMIN_ENABLED": "false",
+    "AI_ENABLED": "true",
+    "AI_FAST_MODEL": "@cf/meta/llama-3.2-11b-vision-instruct",
+    "AI_STRONG_MODEL": "@cf/moonshotai/kimi-k2.5",
+    "IMAGE_RETENTION_DAYS": "7",
+    "CHAT_RETENTION_DAYS": "7",
+    "REVISION_RETENTION_DAYS": "7",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ai-nutrition-advisor-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "ai-nutrition-advisor-media",
+    },
+  ],
+  "ai": {
+    "binding": "AI",
+  },
+  "workflows": [
+    {
+      "name": "meal-analysis-workflow",
+      "binding": "MEAL_ANALYSIS",
+      "class_name": "MealAnalysisWorkflow",
+    },
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+    },
+  ],
+  "triggers": {
+    "crons": ["15 * * * *", "5 0 * * *"],
+  },
+}
