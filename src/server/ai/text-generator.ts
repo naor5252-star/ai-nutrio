@@ -62,6 +62,10 @@ function readUnknownField(value: object, key: string): unknown {
   return (value as Record<string, unknown>)[key];
 }
 
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
 function extractText(raw: unknown): string | null {
   if (typeof raw === "string") return raw.trim() || null;
   if (typeof raw !== "object" || raw === null) return null;
@@ -70,7 +74,7 @@ function extractText(raw: unknown): string | null {
   if (typeof response === "string") return response.trim() || null;
 
   const choices = readUnknownField(raw, "choices");
-  if (!Array.isArray(choices) || choices.length === 0) return null;
+  if (!isUnknownArray(choices) || choices.length === 0) return null;
 
   const first = choices[0];
   if (typeof first !== "object" || first === null) return null;
@@ -79,7 +83,7 @@ function extractText(raw: unknown): string | null {
   if (typeof message === "object" && message !== null) {
     const content = readUnknownField(message, "content");
     if (typeof content === "string") return content.trim() || null;
-    if (Array.isArray(content)) {
+    if (isUnknownArray(content)) {
       const combined = content
         .map((part) => {
           if (typeof part !== "object" || part === null) return "";

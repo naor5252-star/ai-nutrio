@@ -171,14 +171,14 @@ function readResponseField(raw: unknown): unknown {
   }
 
   const choices = readUnknownField(raw, "choices");
-  if (Array.isArray(choices) && choices.length > 0) {
+  if (isUnknownArray(choices) && choices.length > 0) {
     const first = choices[0];
     if (typeof first === "object" && first !== null) {
       const message = readUnknownField(first, "message");
       if (typeof message === "object" && message !== null) {
         const content = readUnknownField(message, "content");
         if (typeof content === "string") return stripCodeFence(content);
-        if (Array.isArray(content)) {
+        if (isUnknownArray(content)) {
           const combined = content
             .map((part) => {
               if (typeof part !== "object" || part === null) return "";
@@ -200,6 +200,10 @@ function readResponseField(raw: unknown): unknown {
 
 function readUnknownField(value: object, key: string): unknown {
   return (value as Record<string, unknown>)[key];
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
 }
 
 function stripCodeFence(value: string): string {
