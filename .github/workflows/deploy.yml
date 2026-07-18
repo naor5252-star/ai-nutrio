@@ -95,6 +95,9 @@ jobs:
           EMAIL_FROM: ${{ vars.EMAIL_FROM }}
         run: node scripts/configure-production.mjs
 
+      - name: Build production assets
+        run: npm run build
+
       - name: Apply D1 migrations
         run: npx wrangler d1 migrations apply ai-nutrition-advisor-db --remote --config wrangler.deploy.jsonc
         env:
