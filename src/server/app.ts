@@ -17,7 +17,7 @@ import { pushRoutes } from "./api/push-routes";
 import { garminRoutes } from "./api/garmin-routes";
 import { accountRoutes } from "./api/account-routes";
 
-export const app = new Hono<AppEnv>();
+export const app = new Hono<AppEnv>({ strict: false });
 app.use("*", correlationMiddleware);
 app.use("*", securityHeadersMiddleware);
 

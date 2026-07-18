@@ -28,7 +28,7 @@ export function SettingsPage(): React.JSX.Element {
     queryKey: ["profile"],
     queryFn: () =>
       apiRequest<{ profile: ProfileRow | null; targets: Record<string, unknown> | null }>(
-        "/api/v1/profile/",
+        "/api/v1/profile",
       ),
   });
   const household = useQuery({
@@ -43,7 +43,7 @@ export function SettingsPage(): React.JSX.Element {
   const saveProfile = useMutation({
     mutationFn: (form: HTMLFormElement) => {
       const data = new FormData(form);
-      return apiRequest<{ targets: { warningCodes: string[] } }>("/api/v1/profile/", {
+      return apiRequest<{ targets: { warningCodes: string[] } }>("/api/v1/profile", {
         method: "PUT",
         body: JSON.stringify({
           dateOfBirth: data.get("dateOfBirth"),

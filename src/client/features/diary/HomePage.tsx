@@ -17,7 +17,7 @@ export function HomePage(): React.JSX.Element {
     queryKey: ["profile"],
     queryFn: () =>
       apiRequest<{ profile: Record<string, unknown> | null; targets: TargetRow | null }>(
-        "/api/v1/profile/",
+        "/api/v1/profile",
       ),
   });
   const diary = useQuery({
