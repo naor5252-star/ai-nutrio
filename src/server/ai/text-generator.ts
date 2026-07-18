@@ -54,9 +54,7 @@ export async function generateCoachReply(options: {
 
 function isAiBinding(value: unknown): value is GenericAiBinding {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof Reflect.get(value, "run") === "function"
+    typeof value === "object" && value !== null && typeof Reflect.get(value, "run") === "function"
   );
 }
 
