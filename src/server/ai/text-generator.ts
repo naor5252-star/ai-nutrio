@@ -58,28 +58,32 @@ function isAiBinding(value: unknown): value is GenericAiBinding {
   );
 }
 
+function readUnknownField(value: object, key: string): unknown {
+  return (value as Record<string, unknown>)[key];
+}
+
 function extractText(raw: unknown): string | null {
   if (typeof raw === "string") return raw.trim() || null;
   if (typeof raw !== "object" || raw === null) return null;
 
-  const response = Reflect.get(raw, "response");
+  const response = readUnknownField(raw, "response");
   if (typeof response === "string") return response.trim() || null;
 
-  const choices = Reflect.get(raw, "choices");
+  const choices = readUnknownField(raw, "choices");
   if (!Array.isArray(choices) || choices.length === 0) return null;
 
   const first = choices[0];
   if (typeof first !== "object" || first === null) return null;
 
-  const message = Reflect.get(first, "message");
+  const message = readUnknownField(first, "message");
   if (typeof message === "object" && message !== null) {
-    const content = Reflect.get(message, "content");
+    const content = readUnknownField(message, "content");
     if (typeof content === "string") return content.trim() || null;
     if (Array.isArray(content)) {
       const combined = content
         .map((part) => {
           if (typeof part !== "object" || part === null) return "";
-          const text = Reflect.get(part, "text");
+          const text = readUnknownField(part, "text");
           return typeof text === "string" ? text : "";
         })
         .join("")
@@ -88,6 +92,6 @@ function extractText(raw: unknown): string | null {
     }
   }
 
-  const text = Reflect.get(first, "text");
+  const text = readUnknownField(first, "text");
   return typeof text === "string" && text.trim() ? text.trim() : null;
 }

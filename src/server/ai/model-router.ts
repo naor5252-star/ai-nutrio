@@ -167,22 +167,22 @@ function readResponseField(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null) return null;
 
   if (Reflect.has(raw, "response")) {
-    return Reflect.get(raw, "response");
+    return readUnknownField(raw, "response");
   }
 
-  const choices = Reflect.get(raw, "choices");
+  const choices = readUnknownField(raw, "choices");
   if (Array.isArray(choices) && choices.length > 0) {
     const first = choices[0];
     if (typeof first === "object" && first !== null) {
-      const message = Reflect.get(first, "message");
+      const message = readUnknownField(first, "message");
       if (typeof message === "object" && message !== null) {
-        const content = Reflect.get(message, "content");
+        const content = readUnknownField(message, "content");
         if (typeof content === "string") return stripCodeFence(content);
         if (Array.isArray(content)) {
           const combined = content
             .map((part) => {
               if (typeof part !== "object" || part === null) return "";
-              const value = Reflect.get(part, "text");
+              const value = readUnknownField(part, "text");
               return typeof value === "string" ? value : "";
             })
             .join("");
@@ -190,12 +190,16 @@ function readResponseField(raw: unknown): unknown {
         }
       }
 
-      const text = Reflect.get(first, "text");
+      const text = readUnknownField(first, "text");
       if (typeof text === "string") return stripCodeFence(text);
     }
   }
 
   return raw;
+}
+
+function readUnknownField(value: object, key: string): unknown {
+  return (value as Record<string, unknown>)[key];
 }
 
 function stripCodeFence(value: string): string {
