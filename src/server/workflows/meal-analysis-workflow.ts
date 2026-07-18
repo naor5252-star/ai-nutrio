@@ -189,6 +189,12 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
         durationMs: Date.now() - startedAt,
         outcome: error instanceof Error ? error.name : "unknown",
         retryable: true,
+        details: {
+          errorMessage:
+            error instanceof Error ? error.message.slice(0, 500) : "Unknown workflow error",
+          fastModel: this.env.AI_FAST_MODEL,
+          strongModel: this.env.AI_STRONG_MODEL,
+        },
       });
       throw error;
     }

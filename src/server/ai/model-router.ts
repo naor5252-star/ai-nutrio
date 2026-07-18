@@ -82,7 +82,10 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
     response_format: {
       type: "json_schema",
       json_schema: {
-        type: "object",
+        name: "meal_analysis",
+        strict: true,
+        schema: {
+          type: "object",
         additionalProperties: false,
         properties: {
           analysisVersion: { type: "string" },
@@ -138,7 +141,8 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
           needsAnotherImage: { type: "boolean" },
           anotherImageReasonHe: { type: "string" },
         },
-        required: ["analysisVersion", "detectedItems", "overallConfidence", "needsAnotherImage"],
+          required: ["analysisVersion", "detectedItems", "overallConfidence", "needsAnotherImage"],
+        },
       },
     },
   };
@@ -161,7 +165,44 @@ function parseModelResponse(raw: unknown): MealAnalysisResult | null {
 
 function readResponseField(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null) return null;
-  return Reflect.has(raw, "response") ? Reflect.get(raw, "response") : raw;
+
+  if (Reflect.has(raw, "response")) {
+    return Reflect.get(raw, "response");
+  }
+
+  const choices = Reflect.get(raw, "choices");
+  if (Array.isArray(choices) && choices.length > 0) {
+    const first = choices[0];
+    if (typeof first === "object" && first !== null) {
+      const message = Reflect.get(first, "message");
+      if (typeof message === "object" && message !== null) {
+        const content = Reflect.get(message, "content");
+        if (typeof content === "string") return stripCodeFence(content);
+        if (Array.isArray(content)) {
+          const combined = content
+            .map((part) => {
+              if (typeof part !== "object" || part === null) return "";
+              const value = Reflect.get(part, "text");
+              return typeof value === "string" ? value : "";
+            })
+            .join("");
+          if (combined) return stripCodeFence(combined);
+        }
+      }
+
+      const text = Reflect.get(first, "text");
+      if (typeof text === "string") return stripCodeFence(text);
+    }
+  }
+
+  return raw;
+}
+
+function stripCodeFence(value: string): string {
+  return value
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
 }
 
 function isGenericAiBinding(value: unknown): value is GenericAiBinding {

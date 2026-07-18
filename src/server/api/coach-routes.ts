@@ -5,6 +5,7 @@ import { requireAuth, requireCsrf } from "../auth/session";
 import { addDaysIso, nowIso, parseJson } from "../repositories/db";
 import { secureUuid } from "../security/crypto";
 import { detectSafetyCategory, safetyResponseHe } from "../ai/safety";
+import { generateCoachReply } from "../ai/text-generator";
 
 export const coachRoutes = new Hono<AppEnv>();
 coachRoutes.use("*", requireAuth);
@@ -99,7 +100,11 @@ coachRoutes.post("/messages", requireCsrf, async (context) => {
   }
   const response = safety
     ? safetyResponseHe(safety)
-    : "כדי לתת תשובה שימושית בלי להמציא ערכים, אני מסתמך על היעדים והארוחות שאישרת. אפשר לשאול למשל מה כדאי לשלב בארוחה הבאה או איך להוסיף יותר סיבים באופן מעשי.";
+    : await generateCoachReply({
+        env: context.env,
+        userMessage: input.message,
+        correlationId: context.get("correlationId"),
+      });
   const expiresAt = addDaysIso(Number(context.env.CHAT_RETENTION_DAYS));
   const statements: D1PreparedStatement[] = [
     context.env.DB.prepare(
