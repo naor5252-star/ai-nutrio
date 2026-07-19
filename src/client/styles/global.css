@@ -1300,13 +1300,51 @@ summary {
   gap: 8px;
   align-items: end;
 }
-.product-search-row button {
+.product-search-row--catalog {
+  grid-template-columns: minmax(0, 1fr) auto 50px;
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid #c8d5c9;
+  border-radius: 22px 7px 22px 7px;
+  background: linear-gradient(135deg, #edf3ea, #fff8eb);
+}
+.product-search-row--catalog label {
+  min-width: 0;
+}
+.product-search-row--catalog label small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.product-search-row--catalog button {
   height: 48px;
   border: 0;
   border-radius: 13px;
-  background: var(--leaf-dark);
   color: white;
+  font-weight: 850;
+}
+.product-search-row--catalog .catalog-search-button {
+  min-width: 104px;
+  background: var(--leaf-dark);
+  padding: 8px 13px;
+  font-size: 0.78rem;
+}
+.product-search-row--catalog .catalog-search-button:disabled {
+  opacity: 0.55;
+}
+.product-search-row--catalog .create-product-shortcut {
+  background: var(--tomato);
   font-size: 1.4rem;
+}
+.catalog-search-empty {
+  margin: 14px 0;
+  padding: 13px;
+  border: 1px dashed var(--line);
+  border-radius: 15px;
+  background: rgba(255, 250, 240, 0.72);
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 .product-results {
   list-style: none;
@@ -1437,6 +1475,18 @@ summary {
   .nutrient-form-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .product-search-row--catalog {
+    grid-template-columns: 1fr 50px;
+  }
+  .product-search-row--catalog .catalog-search-button {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+  .product-search-row--catalog .create-product-shortcut {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
 
 @media (min-width: 700px) {
@@ -1556,6 +1606,17 @@ summary {
   border-radius: 50%;
   background: var(--paper-deep);
   font-size: 1.25rem;
+}
+.product-card__title > .catalog-result-select {
+  width: auto;
+  min-width: 64px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--leaf-dark);
+  color: white;
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  font-weight: 850;
 }
 .product-card__meta {
   display: flex;

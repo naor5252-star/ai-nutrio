@@ -111,6 +111,7 @@ export function ProductsPage(): React.JSX.Element {
   const [scanning, setScanning] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogCandidates, setCatalogCandidates] = useState<ExternalProductCandidate[]>([]);
+  const [catalogSearchCompleted, setCatalogSearchCompleted] = useState(false);
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT);
   const barcodeCameraInput = useRef<HTMLInputElement>(null);
   const barcodeGalleryInput = useRef<HTMLInputElement>(null);
@@ -166,6 +167,7 @@ export function ProductsPage(): React.JSX.Element {
       setShowForm(false);
       setDraft(EMPTY_DRAFT);
       setCatalogCandidates([]);
+      setCatalogSearchCompleted(false);
       setQueryText("");
       void queryClient.invalidateQueries({ queryKey: ["products"] });
       void queryClient.invalidateQueries({ queryKey: ["product-search"] });
@@ -234,6 +236,37 @@ export function ProductsPage(): React.JSX.Element {
       );
     } catch {
       setMessage("המאגרים אינם זמינים כרגע. אפשר להמשיך עם הצילום או הזנה ידנית.");
+    }
+  };
+
+  const searchCatalogFromQuery = async (): Promise<void> => {
+    const query = queryText.trim();
+    if (query.length < 2) {
+      setMessage("הקלד לפחות שתי אותיות או ברקוד מלא");
+      return;
+    }
+
+    setCatalogCandidates([]);
+    setCatalogSearchCompleted(false);
+    setMessage("מחפשים במאגר הישראלי והבינלאומי…");
+
+    try {
+      const isBarcode = /^\d{8,14}$/u.test(query);
+      const candidates = await lookupCatalog({
+        barcode: isBarcode ? query : null,
+        nameHe: isBarcode ? null : query,
+        brand: null,
+      });
+      setCatalogCandidates(candidates);
+      setCatalogSearchCompleted(true);
+      setMessage(
+        candidates.length > 0
+          ? `נמצאו ${candidates.length} התאמות במאגרים`
+          : "לא נמצאה התאמה במאגרים החיצוניים. בדוק את המוצרים שלך או נסה חיפוש אחר.",
+      );
+    } catch {
+      setCatalogSearchCompleted(true);
+      setMessage("לא הצלחנו לחפש במאגרים כרגע. החיפוש במוצרים שלך עדיין זמין.");
     }
   };
 
@@ -438,7 +471,7 @@ export function ProductsPage(): React.JSX.Element {
       {catalogCandidates.length > 0 && (
         <section className="product-library" aria-label="התאמות ממאגרי מוצרים">
           <div className="section-heading">
-            <h2>התאמות ממאגרים</h2>
+            <h2>תוצאות מהמאגר הישראלי והבינלאומי</h2>
             <small>בחר רק אם האריזה והערכים תואמים</small>
           </div>
           <ul className="product-card-list">
@@ -452,14 +485,15 @@ export function ProductsPage(): React.JSX.Element {
                     </small>
                   </div>
                   <button
+                    className="catalog-result-select"
                     type="button"
                     onClick={() => {
                       applyCatalogCandidate(candidate);
                       setMessage(`נבחר מידע מ${candidate.sourceLabelHe}. בדוק ואשר לפני השמירה.`);
                     }}
-                    aria-label={`בחירת ${candidate.nameHe}`}
+                    aria-label={`הוספת ${candidate.nameHe} למוצרים שלי`}
                   >
-                    ✓
+                    הוסף
                   </button>
                 </div>
                 <div className="product-card__meta">
@@ -494,27 +528,54 @@ export function ProductsPage(): React.JSX.Element {
           </p>
         </section>
       )}
+      {catalogSearchCompleted && !catalogLoading && catalogCandidates.length === 0 && (
+        <p className="catalog-search-empty" role="status">
+          לא נמצאה התאמה במאגרים החיצוניים. אפשר לבחור מוצר שמור, לנסות שם קצר יותר או ליצור מוצר
+          ידנית.
+        </p>
+      )}
 
-      <div className="product-search-row">
+      <form
+        className="product-search-row product-search-row--catalog"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void searchCatalogFromQuery();
+        }}
+      >
         <label>
-          <span>חיפוש במוצרים</span>
+          <span>חיפוש לפי שם, מותג או ברקוד</span>
           <input
             value={queryText}
-            onChange={(event) => setQueryText(event.target.value)}
-            placeholder="שם, מותג או ברקוד"
+            onChange={(event) => {
+              setQueryText(event.target.value);
+              setCatalogCandidates([]);
+              setCatalogSearchCompleted(false);
+            }}
+            placeholder="לדוגמה: יוגורט PRO, תנובה או ברקוד"
+            enterKeyHint="search"
+            autoComplete="off"
           />
+          <small>החיפוש בודק את המוצרים שלך וגם את המאגר הישראלי והבינלאומי.</small>
         </label>
         <button
+          className="catalog-search-button"
+          type="submit"
+          disabled={catalogLoading || queryText.trim().length < 2}
+        >
+          {catalogLoading ? "מחפש…" : "חפש במאגר"}
+        </button>
+        <button
+          className="create-product-shortcut"
           type="button"
           onClick={() => {
             setDraft(EMPTY_DRAFT);
             setShowForm(true);
           }}
-          aria-label="יצירת מוצר"
+          aria-label="יצירת מוצר ידנית"
         >
           +
         </button>
-      </div>
+      </form>
 
       <section className="product-library">
         <div className="section-heading">
