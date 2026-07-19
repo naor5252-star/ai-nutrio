@@ -30,42 +30,64 @@ export async function analyzeMealImages(
     return { result: disabledResult(), model: null, route: "disabled" };
 
   const fastModel = env.AI_FAST_MODEL;
-  const fastRaw = await aiValue.run(fastModel, createVisionPayload(images, false));
+  const fastRaw = await aiValue.run(
+    fastModel,
+    createVisionPayload(images, false),
+  );
   const fastParsed = parseModelResponse(fastRaw);
   if (fastParsed && !needsEscalation(fastParsed)) {
     return { result: fastParsed, model: fastModel, route: "fast" };
   }
 
   const strongModel = env.AI_STRONG_MODEL;
-  const strongRaw = await aiValue.run(strongModel, createVisionPayload(images, true));
+  const strongRaw = await aiValue.run(
+    strongModel,
+    createVisionPayload(images, true),
+  );
   const strongParsed = parseModelResponse(strongRaw);
-  if (strongParsed) return { result: strongParsed, model: strongModel, route: "fast_then_strong" };
-  if (fastParsed) return { result: fastParsed, model: fastModel, route: "fast" };
+  if (strongParsed)
+    return {
+      result: strongParsed,
+      model: strongModel,
+      route: "fast_then_strong",
+    };
+  if (fastParsed)
+    return { result: fastParsed, model: fastModel, route: "fast" };
   return {
-    result: disabledResult("המודל לא החזיר תשובה תקינה. אפשר להזין את הארוחה ידנית."),
+    result: disabledResult(
+      "המודל לא החזיר תשובה תקינה. אפשר להזין את הארוחה ידנית.",
+    ),
     model: strongModel,
     route: "fast_then_strong",
   };
 }
 
-function createVisionPayload(images: ImageInput[], strong: boolean): Record<string, unknown> {
+function createVisionPayload(
+  images: ImageInput[],
+  strong: boolean,
+): Record<string, unknown> {
   const content: Array<Record<string, unknown>> = [
     {
       type: "text",
       text: [
-        "נתח את התמונות כארוחה אחת. החזר JSON בלבד לפי הסכמה.",
-        "אל תמציא ערכים מדויקים. כאשר הכמות או הזהות אינן ודאיות, השתמש בביטחון נמוך ובטווח סביר.",
-        "פרק את הארוחה לרכיבים נפרדים. הנח שכל המזון בתמונה נאכל.",
+        "נתח את כל התמונות כארוחה אחת והחזר JSON בלבד לפי הסכמה.",
+        "השתמש בכל הזוויות, אך אל תספור את אותו רכיב יותר מפעם אחת.",
+        "זהה כל רכיב אכיל שנראה בתמונה בנפרד. במנה מורכבת הפרד רק רכיבים שניתן להבחין בהם חזותית; אחרת השאר אותה כמנה אחת.",
+        "הערך כמות ומשקל בעזרת גודל הצלחת, הסכו״ם, האריזה והפרספקטיבה. אל תמציא דיוק שאינו נתמך בתמונה.",
+        "התחשב במאכלים ובמידות מנה נפוצים בישראל, אך אל תנחש מותג או מרכיב נסתר.",
+        "שמן, רוטב, ציפוי ושיטת בישול יש לציין רק כאשר יש להם סימן חזותי ברור. במקרה של ספק השתמש בביטחון נמוך ובטווח קלוריות רחב.",
         strong
-          ? "בדוק במיוחד סתירות בין זוויות, מנות מורכבות ורטבים גלויים."
-          : "בצע זיהוי ראשוני מהיר.",
+          ? "בצע בדיקה שנייה מכוונת: חפש רכיבים קטנים, רטבים, כפילויות בין תמונות וסתירות בין זהות, משקל וקלוריות."
+          : "בצע מיפוי חזותי ראשוני זהיר לפני חישוב הכמויות.",
       ].join(" "),
     },
   ];
   for (const image of images.slice(0, 4)) {
     content.push({
       type: "image_url",
-      image_url: { url: `data:${image.contentType};base64,${arrayBufferToBase64(image.bytes)}` },
+      image_url: {
+        url: `data:${image.contentType};base64,${arrayBufferToBase64(image.bytes)}`,
+      },
     });
   }
   return {
@@ -73,12 +95,12 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
       {
         role: "system",
         content:
-          "You are a cautious nutrition image analyzer. Return Hebrew food names and never diagnose.",
+          "You are a precise, conservative food-vision specialist for meal logging. Return Hebrew food names, use all image evidence, avoid double counting, and never diagnose.",
       },
       { role: "user", content },
     ],
-    max_tokens: 2_500,
-    temperature: 0.1,
+    max_tokens: strong ? 3_200 : 2_700,
+    temperature: 0.05,
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -100,13 +122,25 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
                   temporaryId: { type: "string" },
                   candidateNameHe: { type: "string" },
                   candidateNameEn: { type: "string" },
-                  alternativeCandidates: { type: "array", items: { type: "string" } },
+                  alternativeCandidates: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
                   estimatedQuantity: { type: ["number", "null"] },
                   estimatedUnit: { type: ["string", "null"] },
                   estimatedGrams: { type: ["number", "null"] },
-                  foodIdentityConfidence: { type: "string", enum: ["high", "medium", "low"] },
-                  quantityConfidence: { type: "string", enum: ["high", "medium", "low"] },
-                  nutritionConfidence: { type: "string", enum: ["high", "medium", "low"] },
+                  foodIdentityConfidence: {
+                    type: "string",
+                    enum: ["high", "medium", "low"],
+                  },
+                  quantityConfidence: {
+                    type: "string",
+                    enum: ["high", "medium", "low"],
+                  },
+                  nutritionConfidence: {
+                    type: "string",
+                    enum: ["high", "medium", "low"],
+                  },
                   plausibleCaloriesMin: { type: ["number", "null"] },
                   plausibleCaloriesMax: { type: ["number", "null"] },
                   notes: { type: "array", items: { type: "string" } },
@@ -125,7 +159,10 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
                 ],
               },
             },
-            overallConfidence: { type: "string", enum: ["high", "medium", "low"] },
+            overallConfidence: {
+              type: "string",
+              enum: ["high", "medium", "low"],
+            },
             clarificationQuestions: {
               type: "array",
               items: {
@@ -141,7 +178,12 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
             needsAnotherImage: { type: "boolean" },
             anotherImageReasonHe: { type: "string" },
           },
-          required: ["analysisVersion", "detectedItems", "overallConfidence", "needsAnotherImage"],
+          required: [
+            "analysisVersion",
+            "detectedItems",
+            "overallConfidence",
+            "needsAnotherImage",
+          ],
         },
       },
     },
@@ -215,17 +257,25 @@ function stripCodeFence(value: string): string {
 
 function isGenericAiBinding(value: unknown): value is GenericAiBinding {
   return (
-    typeof value === "object" && value !== null && typeof Reflect.get(value, "run") === "function"
+    typeof value === "object" &&
+    value !== null &&
+    typeof Reflect.get(value, "run") === "function"
   );
 }
 
 function needsEscalation(result: MealAnalysisResult): boolean {
   return (
-    result.overallConfidence === "low" ||
+    result.overallConfidence !== "high" ||
     result.needsAnotherImage ||
-    result.detectedItems.length > 8 ||
+    result.detectedItems.length !== 1 ||
     result.detectedItems.some(
-      (item) => item.foodIdentityConfidence === "low" || item.quantityConfidence === "low",
+      (item) =>
+        item.foodIdentityConfidence !== "high" ||
+        item.quantityConfidence !== "high" ||
+        item.nutritionConfidence !== "high" ||
+        item.estimatedGrams === null ||
+        item.plausibleCaloriesMin === null ||
+        item.plausibleCaloriesMax === null,
     )
   );
 }
@@ -263,7 +313,9 @@ function disabledResult(
       },
     ],
     overallConfidence: "low",
-    clarificationQuestions: [{ questionId: "manual-entry", questionHe: "מה מופיע בארוחה?" }],
+    clarificationQuestions: [
+      { questionId: "manual-entry", questionHe: "מה מופיע בארוחה?" },
+    ],
     needsAnotherImage: false,
   };
 }

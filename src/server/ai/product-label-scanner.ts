@@ -2,7 +2,12 @@ import { z } from "zod";
 import type { RuntimeEnv } from "../context";
 import { logEvent } from "../services/logger";
 
-const nullableNutrient = z.number().finite().nonnegative().nullable().catch(null);
+const nullableNutrient = z
+  .number()
+  .finite()
+  .nonnegative()
+  .nullable()
+  .catch(null);
 
 const productLabelResultSchema = z.object({
   suggestedNameHe: z.string().trim().max(160).nullable().catch(null),
@@ -15,7 +20,13 @@ const productLabelResultSchema = z.object({
   baseQuantity: z.number().finite().positive().max(10_000).catch(100),
   baseUnit: z.enum(["g", "ml"]).catch("g"),
   servingDescriptionHe: z.string().trim().max(120).nullable().catch(null),
-  servingWeight: z.number().finite().positive().max(10_000).nullable().catch(null),
+  servingWeight: z
+    .number()
+    .finite()
+    .positive()
+    .max(10_000)
+    .nullable()
+    .catch(null),
   nutrients: z.object({
     energyKcal: nullableNutrient,
     protein: nullableNutrient,
@@ -44,12 +55,12 @@ export async function scanProductLabel(options: {
   }
 
   try {
-    const raw = await options.env.AI.run(options.env.AI_FAST_MODEL, {
+    const raw = await options.env.AI.run(options.env.AI_STRONG_MODEL, {
       messages: [
         {
           role: "system",
           content:
-            "You read packaged-food labels. Return JSON only. Never invent a value that is not visible. Use null for missing values.",
+            "You are a meticulous packaged-food OCR and nutrition-label specialist. Return JSON only. Read Hebrew and English text, preserve the printed basis, and never infer a number that is not visible.",
         },
         {
           role: "user",
@@ -57,11 +68,13 @@ export async function scanProductLabel(options: {
             {
               type: "text",
               text: [
-                "קרא את צילום המוצר או התווית.",
-                "חלץ שם מוצר מוצע בעברית, מותג, ברקוד אם הוא נראה, והערכים התזונתיים לפי 100 גרם או 100 מ״ל.",
-                "אם התווית היא למנה בלבד, שמור את משקל המנה ונסה לנרמל ל-100 רק כאשר ניתן לחשב בוודאות.",
+                "קרא בקפדנות את חזית המוצר, הברקוד וטבלת הסימון התזונתי הנראים בתמונה.",
+                "חלץ שם מוצר מוצע בעברית, מותג וברקוד רק כאשר הספרות נראות בבירור.",
+                "הבחן בין ערכים ל-100 גרם או 100 מ״ל לבין ערכים למנה. העדף את עמודת 100 גרם או 100 מ״ל כאשר היא קיימת.",
+                "כאשר מופיעים רק ערכים למנה, שמור את תיאור ומשקל המנה ואל תנרמל ל-100 אלא אם החישוב חד-משמעי.",
+                "אל תבלבל בין קילו-ג׳אול לקלוריות, בין נתרן לאנרגיה, או בין פחמימות לסוכרים.",
                 "החזר אובייקט JSON עם המפתחות suggestedNameHe, brand, barcode, baseQuantity, baseUnit, servingDescriptionHe, servingWeight, nutrients, confidence, warningsHe.",
-                "בתוך nutrients החזר energyKcal, protein, carbohydrate, fat, fiber. ערך שאינו נראה חייב להיות null.",
+                "בתוך nutrients החזר energyKcal, protein, carbohydrate, fat, fiber. כל טקסט או מספר שאינם נראים חייבים להיות null.",
               ].join(" "),
             },
             {
@@ -73,15 +86,69 @@ export async function scanProductLabel(options: {
           ],
         },
       ],
-      max_tokens: 1_400,
-      temperature: 0.1,
+      max_tokens: 1_800,
+      temperature: 0.05,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "product_label_scan",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              suggestedNameHe: { type: ["string", "null"] },
+              brand: { type: ["string", "null"] },
+              barcode: { type: ["string", "null"] },
+              baseQuantity: { type: "number" },
+              baseUnit: { type: "string", enum: ["g", "ml"] },
+              servingDescriptionHe: { type: ["string", "null"] },
+              servingWeight: { type: ["number", "null"] },
+              nutrients: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  energyKcal: { type: ["number", "null"] },
+                  protein: { type: ["number", "null"] },
+                  carbohydrate: { type: ["number", "null"] },
+                  fat: { type: ["number", "null"] },
+                  fiber: { type: ["number", "null"] },
+                },
+                required: [
+                  "energyKcal",
+                  "protein",
+                  "carbohydrate",
+                  "fat",
+                  "fiber",
+                ],
+              },
+              confidence: { type: "string", enum: ["high", "medium", "low"] },
+              warningsHe: { type: "array", items: { type: "string" } },
+            },
+            required: [
+              "suggestedNameHe",
+              "brand",
+              "barcode",
+              "baseQuantity",
+              "baseUnit",
+              "servingDescriptionHe",
+              "servingWeight",
+              "nutrients",
+              "confidence",
+              "warningsHe",
+            ],
+          },
+        },
+      },
     });
 
     const candidate = extractCandidate(raw);
-    if (candidate === null) throw new Error("AI label scan returned invalid JSON");
+    if (candidate === null)
+      throw new Error("AI label scan returned invalid JSON");
 
     const parsed = productLabelResultSchema.safeParse(candidate);
-    if (!parsed.success) throw new Error("AI label scan did not match the expected schema");
+    if (!parsed.success)
+      throw new Error("AI label scan did not match the expected schema");
     return parsed.data;
   } catch (error) {
     logEvent({
@@ -92,8 +159,10 @@ export async function scanProductLabel(options: {
       retryable: true,
       details: {
         errorMessage:
-          error instanceof Error ? error.message.slice(0, 500) : "Unknown label scan error",
-        model: options.env.AI_FAST_MODEL,
+          error instanceof Error
+            ? error.message.slice(0, 500)
+            : "Unknown label scan error",
+        model: options.env.AI_STRONG_MODEL,
       },
     });
     throw error;

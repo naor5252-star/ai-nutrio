@@ -23,7 +23,7 @@
     "APPLE_ENABLED": "false",
     "GARMIN_ENABLED": "false",
     "AI_ENABLED": "true",
-    "AI_FAST_MODEL": "@cf/google/gemma-4-26b-a4b-it",
+    "AI_FAST_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
     "AI_STRONG_MODEL": "@cf/moonshotai/kimi-k2.6",
     "IMAGE_RETENTION_DAYS": "7",
     "CHAT_RETENTION_DAYS": "7",
