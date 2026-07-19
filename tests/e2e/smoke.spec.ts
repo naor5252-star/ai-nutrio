@@ -71,6 +71,12 @@ test("authenticated iPhone view exposes the thumb-reachable meal capture action"
 
   await page.goto("/");
   await expect(page.getByRole("link", { name: /מה אכלתי/u })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "ניווט ראשי" })).toBeVisible();
-  await expect(page.getByRole("link", { name: /הוספה/u })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "פעולה ראשית" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /הוספת ארוחה/u })).toBeVisible();
+
+  const menuButton = page.getByRole("button", { name: "פתיחת התפריט" });
+  await expect(menuButton).toBeVisible();
+  await menuButton.click();
+
+  await expect(page.getByRole("navigation", { name: "עמודי האפליקציה" })).toBeVisible();
 });
