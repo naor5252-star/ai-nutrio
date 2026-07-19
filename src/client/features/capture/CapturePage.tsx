@@ -5,7 +5,8 @@ import { compressImage } from "./image";
 import { queueCapture } from "../../offline/db";
 
 export function CapturePage(): React.JSX.Element {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const [files, setFiles] = useState<Blob[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
@@ -77,30 +78,67 @@ export function CapturePage(): React.JSX.Element {
     <div className="page capture-page">
       <section className="page-title">
         <p className="eyebrow">הוספת ארוחה</p>
-        <h1>צלם, בדוק, שמור.</h1>
-        <p>הזיהוי הוא הערכה. תמיד אפשר לתקן לפני השמירה.</p>
+        <h1>צלם או בחר מהגלריה, בדוק ושמור.</h1>
+        <p>אפשר להשתמש במצלמה או לבחור עד ארבע תמונות קיימות. תמיד ניתן לתקן לפני השמירה.</p>
       </section>
       <input
-        ref={inputRef}
+        ref={cameraInputRef}
         className="visually-hidden"
         type="file"
         accept="image/*"
         capture="environment"
         multiple
-        onChange={(event) => void chooseFiles(event.target.files)}
+        onChange={(event) => {
+          const input = event.currentTarget;
+          void chooseFiles(input.files).finally(() => {
+            input.value = "";
+          });
+        }}
+      />
+      <input
+        ref={galleryInputRef}
+        className="visually-hidden"
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={(event) => {
+          const input = event.currentTarget;
+          void chooseFiles(input.files).finally(() => {
+            input.value = "";
+          });
+        }}
       />
       {previews.length === 0 ? (
-        <button className="capture-stage" onClick={() => inputRef.current?.click()} disabled={busy}>
-          <span className="capture-stage__frame">
-            <i />
-            <i />
-            <i />
-            <i />
-            <b>◎</b>
-          </span>
-          <strong>צלם ארוחה</strong>
-          <small>או בחר תמונה מספריית התמונות</small>
-        </button>
+        <div className="capture-source-choice">
+          <button
+            className="capture-stage"
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={busy}
+          >
+            <span className="capture-stage__frame">
+              <i />
+              <i />
+              <i />
+              <i />
+              <b>◎</b>
+            </span>
+            <strong>צלם ארוחה</strong>
+            <small>פתיחת המצלמה האחורית</small>
+          </button>
+          <button
+            className="gallery-source-action"
+            type="button"
+            onClick={() => galleryInputRef.current?.click()}
+            disabled={busy}
+          >
+            <span aria-hidden="true">▧</span>
+            <span>
+              <strong>בחירה מהגלריה</strong>
+              <small>אפשר לבחור עד ארבע תמונות קיימות</small>
+            </span>
+          </button>
+        </div>
       ) : (
         <section className="capture-review">
           <div className="capture-grid">
@@ -108,15 +146,23 @@ export function CapturePage(): React.JSX.Element {
               <img key={preview} src={preview} alt={`זווית ${index + 1} של הארוחה`} />
             ))}
           </div>
-          <button className="text-action" onClick={() => inputRef.current?.click()}>
-            החלפת תמונות
-          </button>
+          <div className="capture-source-actions">
+            <button type="button" onClick={() => cameraInputRef.current?.click()} disabled={busy}>
+              <span aria-hidden="true">◎</span>
+              צילום מחדש
+            </button>
+            <button type="button" onClick={() => galleryInputRef.current?.click()} disabled={busy}>
+              <span aria-hidden="true">▧</span>
+              בחירה אחרת מהגלריה
+            </button>
+          </div>
         </section>
       )}
       <div className="capture-guidance">
         <h2>צילום שעוזר לזיהוי</h2>
         <p>
-          צלם מלמעלה או בזווית קלה, ודאג שכל רכיבי הארוחה יהיו בתמונה. אפשר להוסיף עד ארבע זוויות.
+          צלם מלמעלה או בזווית קלה, או בחר תמונות ברורות מהגלריה. ודא שכל רכיבי הארוחה נראים; אפשר
+          להשתמש בעד ארבע זוויות.
         </p>
       </div>
       {status && (

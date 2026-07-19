@@ -112,8 +112,10 @@ export function ProductsPage(): React.JSX.Element {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogCandidates, setCatalogCandidates] = useState<ExternalProductCandidate[]>([]);
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT);
-  const barcodeInput = useRef<HTMLInputElement>(null);
-  const labelInput = useRef<HTMLInputElement>(null);
+  const barcodeCameraInput = useRef<HTMLInputElement>(null);
+  const barcodeGalleryInput = useRef<HTMLInputElement>(null);
+  const labelCameraInput = useRef<HTMLInputElement>(null);
+  const labelGalleryInput = useRef<HTMLInputElement>(null);
 
   const library = useQuery({
     queryKey: ["products"],
@@ -294,7 +296,8 @@ export function ProductsPage(): React.JSX.Element {
       );
     } finally {
       setScanning(false);
-      if (barcodeInput.current) barcodeInput.current.value = "";
+      if (barcodeCameraInput.current) barcodeCameraInput.current.value = "";
+      if (barcodeGalleryInput.current) barcodeGalleryInput.current.value = "";
     }
   };
 
@@ -327,7 +330,8 @@ export function ProductsPage(): React.JSX.Element {
       );
     } finally {
       setScanning(false);
-      if (labelInput.current) labelInput.current.value = "";
+      if (labelCameraInput.current) labelCameraInput.current.value = "";
+      if (labelGalleryInput.current) labelGalleryInput.current.value = "";
     }
   };
 
@@ -339,23 +343,58 @@ export function ProductsPage(): React.JSX.Element {
       <section className="page-title">
         <p className="eyebrow">ספריית מוצרים</p>
         <h1>סרוק פעם אחת, השתמש בכל ארוחה.</h1>
-        <p>אפשר לצלם ברקוד או תווית, ולהשוות למאגר ישראלי ולמאגר בינלאומי לפני השמירה.</p>
+        <p>
+          אפשר לצלם ברקוד או תווית, או לבחור תמונה מהגלריה, ולהשוות למאגר ישראלי ולמאגר בינלאומי
+          לפני השמירה.
+        </p>
       </section>
 
       <div className="product-scan-actions">
-        <button type="button" onClick={() => barcodeInput.current?.click()} disabled={scanning}>
-          <span aria-hidden="true">▥</span>
-          <strong>סריקת ברקוד</strong>
-          <small>צלם את הקווים והמספר</small>
-        </button>
-        <button type="button" onClick={() => labelInput.current?.click()} disabled={scanning}>
-          <span aria-hidden="true">▤</span>
-          <strong>צילום ערכים</strong>
-          <small>צלם את טבלת הסימון התזונתי</small>
-        </button>
+        <div className="product-scan-option product-scan-option--barcode">
+          <button
+            className="product-scan-option__primary"
+            type="button"
+            onClick={() => barcodeCameraInput.current?.click()}
+            disabled={scanning}
+          >
+            <span aria-hidden="true">▥</span>
+            <strong>סריקת ברקוד</strong>
+            <small>צילום חדש במצלמה</small>
+          </button>
+          <button
+            className="product-scan-option__gallery"
+            type="button"
+            onClick={() => barcodeGalleryInput.current?.click()}
+            disabled={scanning}
+          >
+            <span aria-hidden="true">▧</span>
+            בחירת ברקוד מהגלריה
+          </button>
+        </div>
+        <div className="product-scan-option product-scan-option--label">
+          <button
+            className="product-scan-option__primary"
+            type="button"
+            onClick={() => labelCameraInput.current?.click()}
+            disabled={scanning}
+          >
+            <span aria-hidden="true">▤</span>
+            <strong>צילום ערכים</strong>
+            <small>צילום חדש של טבלת הערכים</small>
+          </button>
+          <button
+            className="product-scan-option__gallery"
+            type="button"
+            onClick={() => labelGalleryInput.current?.click()}
+            disabled={scanning}
+          >
+            <span aria-hidden="true">▧</span>
+            בחירת תווית מהגלריה
+          </button>
+        </div>
       </div>
       <input
-        ref={barcodeInput}
+        ref={barcodeCameraInput}
         className="visually-hidden"
         type="file"
         accept="image/*"
@@ -363,11 +402,25 @@ export function ProductsPage(): React.JSX.Element {
         onChange={(event) => void scanBarcode(event.target.files?.[0])}
       />
       <input
-        ref={labelInput}
+        ref={barcodeGalleryInput}
+        className="visually-hidden"
+        type="file"
+        accept="image/*"
+        onChange={(event) => void scanBarcode(event.target.files?.[0])}
+      />
+      <input
+        ref={labelCameraInput}
         className="visually-hidden"
         type="file"
         accept="image/*"
         capture="environment"
+        onChange={(event) => void scanLabel(event.target.files?.[0])}
+      />
+      <input
+        ref={labelGalleryInput}
+        className="visually-hidden"
+        type="file"
+        accept="image/*"
         onChange={(event) => void scanLabel(event.target.files?.[0])}
       />
 
