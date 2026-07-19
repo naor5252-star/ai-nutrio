@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppEnv } from "../context";
 import { requireAuth, requireCsrf } from "../auth/session";
 import { scanProductLabel } from "../ai/product-label-scanner";
+import { findOpenFoodFactsByBarcode, searchOpenFoodFacts } from "../integrations/open-food-facts";
 import { requireHouseholdId } from "../domain/authorization";
 import { nowIso } from "../repositories/db";
 import { secureUuid } from "../security/crypto";
@@ -31,7 +32,9 @@ const productInputSchema = z.object({
   baseUnit: z.enum(["g", "ml"]),
   servingDescriptionHe: z.string().trim().max(120).nullable().optional(),
   servingWeight: z.number().finite().positive().max(10_000).nullable().optional(),
-  sourceType: z.enum(["label", "manual"]),
+  sourceType: z.enum(["label", "database", "manual"]),
+  providerName: z.enum(["user", "open_food_facts_israel", "open_food_facts_world"]).default("user"),
+  sourceSnapshot: z.unknown().nullable().optional(),
   nutrients: z.array(nutrientInputSchema).min(1).max(100),
 });
 
@@ -96,6 +99,31 @@ productRoutes.get("/search", async (context) => {
     .bind(user.id, user.householdId, user.householdId, like, like, like, query)
     .all<Record<string, unknown>>();
   return context.json({ results: rows.results });
+});
+
+productRoutes.get("/catalog/barcode/:barcode", async (context) => {
+  const barcode = z
+    .string()
+    .regex(/^\d{8,14}$/u)
+    .parse(context.req.param("barcode"));
+  const candidates = await findOpenFoodFactsByBarcode(barcode, {
+    correlationId: context.get("correlationId"),
+  });
+  return context.json({ candidates });
+});
+
+productRoutes.get("/catalog/search", async (context) => {
+  const query = z.string().trim().min(2).max(120).parse(context.req.query("q"));
+  const brand = z
+    .string()
+    .trim()
+    .max(120)
+    .nullable()
+    .parse(context.req.query("brand") ?? null);
+  const candidates = await searchOpenFoodFacts(query, brand, {
+    correlationId: context.get("correlationId"),
+  });
+  return context.json({ candidates });
 });
 
 productRoutes.get("/barcode/:barcode", async (context) => {
@@ -211,8 +239,15 @@ productRoutes.post("/", requireCsrf, async (context) => {
       now,
     ),
     context.env.DB.prepare(
-      "INSERT INTO food_sources (id, food_id, source_type, provider_name, raw_snapshot_json, created_at) VALUES (?, ?, ?, 'user', ?, ?)",
-    ).bind(sourceId, foodId, input.sourceType, JSON.stringify(input), now),
+      "INSERT INTO food_sources (id, food_id, source_type, provider_name, raw_snapshot_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(
+      sourceId,
+      foodId,
+      input.sourceType,
+      input.providerName,
+      JSON.stringify(input.sourceSnapshot ?? input),
+      now,
+    ),
     context.env.DB.prepare(
       "INSERT INTO household_food_ownership (food_id, household_id, creator_user_id, created_at) VALUES (?, ?, ?, ?)",
     ).bind(foodId, householdId, user.id, now),

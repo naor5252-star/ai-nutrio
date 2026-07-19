@@ -37,6 +37,30 @@ type LabelScan = {
   warningsHe: string[];
 };
 
+type ExternalProductCandidate = {
+  externalId: string;
+  barcode: string | null;
+  nameHe: string;
+  nameOriginal: string | null;
+  brand: string | null;
+  baseQuantity: number;
+  baseUnit: "g" | "ml";
+  servingDescriptionHe: string | null;
+  servingWeight: number | null;
+  nutrients: {
+    energyKcal: number | null;
+    protein: number | null;
+    carbohydrate: number | null;
+    fat: number | null;
+    fiber: number | null;
+  };
+  providerName: "open_food_facts_israel" | "open_food_facts_world";
+  sourceLabelHe: string;
+  sourceRegion: "israel" | "international";
+  imageUrl: string | null;
+  countries: string[];
+};
+
 type BarcodeDetectorLike = {
   detect(source: ImageBitmapSource): Promise<Array<{ rawValue: string }>>;
 };
@@ -56,7 +80,9 @@ type ProductDraft = {
   carbohydrate: string;
   fat: string;
   fiber: string;
-  sourceType: "label" | "manual";
+  sourceType: "label" | "database" | "manual";
+  providerName: "user" | "open_food_facts_israel" | "open_food_facts_world";
+  sourceSnapshot: ExternalProductCandidate | null;
 };
 
 const EMPTY_DRAFT: ProductDraft = {
@@ -73,6 +99,8 @@ const EMPTY_DRAFT: ProductDraft = {
   fat: "",
   fiber: "",
   sourceType: "manual",
+  providerName: "user",
+  sourceSnapshot: null,
 };
 
 export function ProductsPage(): React.JSX.Element {
@@ -81,6 +109,8 @@ export function ProductsPage(): React.JSX.Element {
   const [message, setMessage] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogCandidates, setCatalogCandidates] = useState<ExternalProductCandidate[]>([]);
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT);
   const barcodeInput = useRef<HTMLInputElement>(null);
   const labelInput = useRef<HTMLInputElement>(null);
@@ -111,6 +141,8 @@ export function ProductsPage(): React.JSX.Element {
           servingDescriptionHe: draft.servingDescriptionHe || null,
           servingWeight: draft.servingWeight ? Number(draft.servingWeight) : null,
           sourceType: draft.sourceType,
+          providerName: draft.providerName,
+          sourceSnapshot: draft.sourceSnapshot,
           nutrients: (
             [
               ["energy_kcal", "kcal", draft.energyKcal],
@@ -131,6 +163,7 @@ export function ProductsPage(): React.JSX.Element {
       setMessage("המוצר נשמר ואפשר לבחור אותו בארוחה");
       setShowForm(false);
       setDraft(EMPTY_DRAFT);
+      setCatalogCandidates([]);
       setQueryText("");
       void queryClient.invalidateQueries({ queryKey: ["products"] });
       void queryClient.invalidateQueries({ queryKey: ["product-search"] });
@@ -157,6 +190,49 @@ export function ProductsPage(): React.JSX.Element {
       headers: { "content-type": compressed.type || "image/jpeg" },
       body: compressed,
     }).then((response) => response.scan);
+  };
+
+  const lookupCatalog = async (options: {
+    barcode: string | null;
+    nameHe: string | null;
+    brand: string | null;
+  }): Promise<ExternalProductCandidate[]> => {
+    setCatalogLoading(true);
+    try {
+      if (options.barcode) {
+        return apiRequest<{ candidates: ExternalProductCandidate[] }>(
+          `/api/v1/products/catalog/barcode/${encodeURIComponent(options.barcode)}`,
+        ).then((response) => response.candidates);
+      }
+      const query = options.nameHe?.trim() || options.brand?.trim();
+      if (!query || query.length < 2) return [];
+      const parameters = new URLSearchParams({ q: query });
+      if (options.brand?.trim()) parameters.set("brand", options.brand.trim());
+      return apiRequest<{ candidates: ExternalProductCandidate[] }>(
+        `/api/v1/products/catalog/search?${parameters.toString()}`,
+      ).then((response) => response.candidates);
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  const lookupCatalogFromDraft = async (): Promise<void> => {
+    setMessage("מחפשים במאגר הישראלי והבינלאומי…");
+    try {
+      const candidates = await lookupCatalog({
+        barcode: draft.barcode || null,
+        nameHe: draft.nameHe || null,
+        brand: draft.brand || null,
+      });
+      setCatalogCandidates(candidates);
+      setMessage(
+        candidates.length > 0
+          ? `נמצאו ${candidates.length} התאמות. בחר את המוצר המתאים.`
+          : "לא נמצאה התאמה במאגרים. אפשר להמשיך עם הערכים מהצילום או להזין ידנית.",
+      );
+    } catch {
+      setMessage("המאגרים אינם זמינים כרגע. אפשר להמשיך עם הצילום או הזנה ידנית.");
+    }
   };
 
   const scanBarcode = async (file: File | undefined): Promise<void> => {
@@ -191,7 +267,20 @@ export function ProductsPage(): React.JSX.Element {
         }));
         setQueryText(detectedBarcode);
         setShowForm(true);
-        setMessage(`זוהה ברקוד ${detectedBarcode}. אפשר להשלים שם וערכים ולשמור.`);
+        setMessage(`זוהה ברקוד ${detectedBarcode}. מחפשים במאגרים…`);
+        const candidates = await lookupCatalog({
+          barcode: detectedBarcode,
+          nameHe: null,
+          brand: null,
+        });
+        setCatalogCandidates(candidates);
+        const firstCandidate = candidates[0];
+        if (firstCandidate) {
+          applyCatalogCandidate(firstCandidate);
+          setMessage(`נמצא מוצר ב${firstCandidate.sourceLabelHe}. בדוק את הערכים לפני השמירה.`);
+        } else {
+          setMessage(`זוהה ברקוד ${detectedBarcode}, אך המוצר לא נמצא במאגרים. אפשר להשלים ידנית.`);
+        }
       } else {
         setShowForm(true);
         setMessage("לא הצלחנו לקרוא את הברקוד. אפשר להקליד אותו ידנית.");
@@ -216,9 +305,19 @@ export function ProductsPage(): React.JSX.Element {
     try {
       const scan = await scanWithAi(file);
       applyLabelScan(scan);
+      const candidates = await lookupCatalog({
+        barcode: scan.barcode,
+        nameHe: scan.suggestedNameHe,
+        brand: scan.brand,
+      });
+      setCatalogCandidates(candidates);
       const confidenceText =
         scan.confidence === "high" ? "הקריאה נראית ברורה" : "כדאי לבדוק את הערכים מול התווית";
-      setMessage(`${confidenceText}. הוסף או תקן את שם המוצר לפני השמירה.`);
+      setMessage(
+        candidates.length > 0
+          ? `${confidenceText}. נמצאו גם ${candidates.length} התאמות ממאגרים לבחירה.`
+          : `${confidenceText}. לא נמצאה התאמה במאגרים; בדוק את הערכים לפני השמירה.`,
+      );
     } catch (error) {
       setShowForm(true);
       setMessage(
@@ -240,7 +339,7 @@ export function ProductsPage(): React.JSX.Element {
       <section className="page-title">
         <p className="eyebrow">ספריית מוצרים</p>
         <h1>סרוק פעם אחת, השתמש בכל ארוחה.</h1>
-        <p>אפשר לצלם ברקוד, לצלם תווית תזונתית או להזין את המוצר ידנית.</p>
+        <p>אפשר לצלם ברקוד או תווית, ולהשוות למאגר ישראלי ולמאגר בינלאומי לפני השמירה.</p>
       </section>
 
       <div className="product-scan-actions">
@@ -276,6 +375,71 @@ export function ProductsPage(): React.JSX.Element {
         <p className="status-message" role="status">
           {message}
         </p>
+      )}
+
+      {catalogLoading && (
+        <p className="status-message" role="status">
+          מחפשים במאגר הישראלי והבינלאומי…
+        </p>
+      )}
+      {catalogCandidates.length > 0 && (
+        <section className="product-library" aria-label="התאמות ממאגרי מוצרים">
+          <div className="section-heading">
+            <h2>התאמות ממאגרים</h2>
+            <small>בחר רק אם האריזה והערכים תואמים</small>
+          </div>
+          <ul className="product-card-list">
+            {catalogCandidates.map((candidate) => (
+              <li key={candidate.externalId}>
+                <div className="product-card__title">
+                  <div>
+                    <strong>{candidate.nameHe}</strong>
+                    <small>
+                      {candidate.brand ?? "ללא מותג"} · {candidate.sourceLabelHe}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      applyCatalogCandidate(candidate);
+                      setMessage(`נבחר מידע מ${candidate.sourceLabelHe}. בדוק ואשר לפני השמירה.`);
+                    }}
+                    aria-label={`בחירת ${candidate.nameHe}`}
+                  >
+                    ✓
+                  </button>
+                </div>
+                <div className="product-card__meta">
+                  <span>{candidate.barcode ?? "ללא ברקוד"}</span>
+                  <span>
+                    ל-{formatNumber(candidate.baseQuantity)} {unitName(candidate.baseUnit)}
+                  </span>
+                </div>
+                <div className="product-card__nutrients">
+                  <span>
+                    <b>{formatNumber(candidate.nutrients.energyKcal)}</b>
+                    <small>קל׳</small>
+                  </span>
+                  <span>
+                    <b>{formatNumber(candidate.nutrients.protein)}</b>
+                    <small>חלבון</small>
+                  </span>
+                  <span>
+                    <b>{formatNumber(candidate.nutrients.carbohydrate)}</b>
+                    <small>פחמ׳</small>
+                  </span>
+                  <span>
+                    <b>{formatNumber(candidate.nutrients.fat)}</b>
+                    <small>שומן</small>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="fine-print">
+            המאגרים פתוחים ושיתופיים. התווית שעל המוצר היא המקור הקובע במקרה של אי־התאמה.
+          </p>
+        </section>
       )}
 
       <div className="product-search-row">
@@ -426,6 +590,16 @@ export function ProductsPage(): React.JSX.Element {
               </select>
             </label>
           </div>
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={() => void lookupCatalogFromDraft()}
+            disabled={
+              catalogLoading || (!draft.barcode && !draft.nameHe.trim() && !draft.brand.trim())
+            }
+          >
+            {catalogLoading ? "מחפשים במאגרים…" : "חיפוש במאגר הישראלי והבינלאומי"}
+          </button>
           <div className="nutrient-form-grid">
             <label>
               קלוריות
@@ -515,6 +689,29 @@ export function ProductsPage(): React.JSX.Element {
       fat: toDraftNumber(scan.nutrients.fat),
       fiber: toDraftNumber(scan.nutrients.fiber),
       sourceType: "label",
+      providerName: "user",
+      sourceSnapshot: null,
+    });
+    setShowForm(true);
+  }
+
+  function applyCatalogCandidate(candidate: ExternalProductCandidate): void {
+    setDraft({
+      nameHe: candidate.nameHe,
+      brand: candidate.brand ?? "",
+      barcode: candidate.barcode ?? "",
+      baseQuantity: String(candidate.baseQuantity),
+      baseUnit: candidate.baseUnit,
+      servingDescriptionHe: candidate.servingDescriptionHe ?? "",
+      servingWeight: toDraftNumber(candidate.servingWeight),
+      energyKcal: toDraftNumber(candidate.nutrients.energyKcal),
+      protein: toDraftNumber(candidate.nutrients.protein),
+      carbohydrate: toDraftNumber(candidate.nutrients.carbohydrate),
+      fat: toDraftNumber(candidate.nutrients.fat),
+      fiber: toDraftNumber(candidate.nutrients.fiber),
+      sourceType: "database",
+      providerName: candidate.providerName,
+      sourceSnapshot: candidate,
     });
     setShowForm(true);
   }
