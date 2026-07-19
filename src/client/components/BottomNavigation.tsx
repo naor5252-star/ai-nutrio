@@ -1,8 +1,14 @@
 import { NavLink } from "react-router-dom";
 
-const items: ReadonlyArray<{ to: string; label: string; icon: string; central?: boolean }> = [
+const items: ReadonlyArray<{
+  to: string;
+  label: string;
+  icon: string;
+  central?: boolean;
+}> = [
   { to: "/", label: "היום", icon: "◴" },
   { to: "/diary", label: "יומן", icon: "☰" },
+  { to: "/products", label: "מוצרים", icon: "▦" },
   { to: "/add", label: "הוספה", icon: "+", central: true },
   { to: "/coach", label: "הכוונה", icon: "↗" },
   { to: "/progress", label: "התקדמות", icon: "∿" },
