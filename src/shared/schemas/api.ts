@@ -17,13 +17,7 @@ export const profileInputSchema = z.object({
   activityLevel: z.enum(ACTIVITY_LEVELS),
   primaryGoal: z.enum(PRIMARY_GOALS),
   goalIntensity: z.enum(GOAL_INTENSITIES),
-  manualCalorieTarget: z
-    .number()
-    .int()
-    .min(500)
-    .max(10_000)
-    .nullable()
-    .optional(),
+  manualCalorieTarget: z.number().int().min(500).max(10_000).nullable().optional(),
   manualProteinTarget: z.number().int().min(0).max(1_000).nullable().optional(),
   timezone: z.string().min(1).max(100),
 });
@@ -45,12 +39,7 @@ export const manualMealSchema = z.object({
         grams: z.number().finite().nonnegative().max(10_000).nullable(),
         calories: z.number().finite().nonnegative().max(20_000).nullable(),
         proteinGrams: z.number().finite().nonnegative().max(2_000).nullable(),
-        carbohydrateGrams: z
-          .number()
-          .finite()
-          .nonnegative()
-          .max(5_000)
-          .nullable(),
+        carbohydrateGrams: z.number().finite().nonnegative().max(5_000).nullable(),
         fatGrams: z.number().finite().nonnegative().max(2_000).nullable(),
         fiberGrams: z.number().finite().nonnegative().max(1_000).nullable(),
         sourceType: z.enum(["label", "database", "manual", "ai_estimate"]),

@@ -68,13 +68,11 @@ export function AnalysisReviewPage(): React.JSX.Element {
   const [message, setMessage] = useState<string | null>(null);
   const query = useQuery({
     queryKey: ["analysis", jobId],
-    queryFn: () =>
-      apiRequest<JobResponse>(`/api/v1/analysis/jobs/${jobId ?? ""}`),
+    queryFn: () => apiRequest<JobResponse>(`/api/v1/analysis/jobs/${jobId ?? ""}`),
     enabled: Boolean(jobId),
     refetchInterval: (state) => {
       const data = state.state.data;
-      return data &&
-        ["completed", "needs_user_input", "failed"].includes(data.job.status)
+      return data && ["completed", "needs_user_input", "failed"].includes(data.job.status)
         ? false
         : 2_000;
     },
@@ -89,11 +87,8 @@ export function AnalysisReviewPage(): React.JSX.Element {
         amount: item.estimatedGrams?.toString() ?? "",
         baseUnit: "g",
         calories:
-          item.plausibleCaloriesMin !== null &&
-          item.plausibleCaloriesMax !== null
-            ? Math.round(
-                (item.plausibleCaloriesMin + item.plausibleCaloriesMax) / 2,
-              ).toString()
+          item.plausibleCaloriesMin !== null && item.plausibleCaloriesMax !== null
+            ? Math.round((item.plausibleCaloriesMin + item.plausibleCaloriesMax) / 2).toString()
             : "",
         protein: "",
         carbs: "",
@@ -118,58 +113,49 @@ export function AnalysisReviewPage(): React.JSX.Element {
       items.length > 0 &&
       items.every(
         (item) =>
-          item.nameHe.trim() &&
-          numericOrBlank(item.amount) &&
-          numericOrBlank(item.calories),
+          item.nameHe.trim() && numericOrBlank(item.amount) && numericOrBlank(item.calories),
       ),
     [items],
   );
 
   const save = useMutation({
     mutationFn: () =>
-      apiRequest<{ mealId: string }>(
-        `/api/v1/analysis/jobs/${jobId ?? ""}/confirm`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            clientMutationId: crypto.randomUUID(),
-            occurredAt: new Date().toISOString(),
-            category: suggestedCategory(),
-            customCategoryName: null,
-            title: items
-              .map((item) => item.nameHe)
-              .slice(0, 3)
-              .join(", "),
-            notes: null,
-            items: items.map((item) => {
-              const amount = item.amount ? Number(item.amount) : 1;
-              return {
-                foodId: item.foodId,
-                nameHe: item.nameHe,
-                quantity: amount,
-                unit: item.baseUnit === "ml" ? "מ״ל" : "גרם",
-                grams: item.baseUnit === "g" && item.amount ? amount : null,
-                calories: item.calories ? Number(item.calories) : null,
-                proteinGrams: item.protein ? Number(item.protein) : null,
-                carbohydrateGrams: item.carbs ? Number(item.carbs) : null,
-                fatGrams: item.fat ? Number(item.fat) : null,
-                fiberGrams: item.fiber ? Number(item.fiber) : null,
-                sourceType: item.sourceType,
-              };
-            }),
+      apiRequest<{ mealId: string }>(`/api/v1/analysis/jobs/${jobId ?? ""}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({
+          clientMutationId: crypto.randomUUID(),
+          occurredAt: new Date().toISOString(),
+          category: suggestedCategory(),
+          customCategoryName: null,
+          title: items
+            .map((item) => item.nameHe)
+            .slice(0, 3)
+            .join(", "),
+          notes: null,
+          items: items.map((item) => {
+            const amount = item.amount ? Number(item.amount) : 1;
+            return {
+              foodId: item.foodId,
+              nameHe: item.nameHe,
+              quantity: amount,
+              unit: item.baseUnit === "ml" ? "מ״ל" : "גרם",
+              grams: item.baseUnit === "g" && item.amount ? amount : null,
+              calories: item.calories ? Number(item.calories) : null,
+              proteinGrams: item.protein ? Number(item.protein) : null,
+              carbohydrateGrams: item.carbs ? Number(item.carbs) : null,
+              fatGrams: item.fat ? Number(item.fat) : null,
+              fiberGrams: item.fiber ? Number(item.fiber) : null,
+              sourceType: item.sourceType,
+            };
           }),
-        },
-      ),
+        }),
+      }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["meals"] });
       void navigate("/diary");
     },
     onError: (error) =>
-      setMessage(
-        error instanceof ClientApiError
-          ? error.messageHe
-          : "לא הצלחנו לשמור את הארוחה",
-      ),
+      setMessage(error instanceof ClientApiError ? error.messageHe : "לא הצלחנו לשמור את הארוחה"),
   });
 
   if (query.isLoading || !query.data) {
@@ -211,10 +197,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
     return (
       <div className="page error-page">
         <h1>לא הצלחנו לזהות את הארוחה</h1>
-        <p>
-          {query.data.job.error_message_he ??
-            "התמונות נשמרו זמנית ואפשר לנסות שוב."}
-        </p>
+        <p>{query.data.job.error_message_he ?? "התמונות נשמרו זמנית ואפשר לנסות שוב."}</p>
         <button
           onClick={() => {
             void apiRequest(`/api/v1/analysis/jobs/${jobId ?? ""}/retry`, {
@@ -253,8 +236,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
         <div className="uncertainty-banner">
           <strong>תמונה נוספת יכולה לעזור</strong>
           <p>
-            {query.data.result.anotherImageReasonHe ??
-              "הזווית הנוכחית אינה מספיקה לזיהוי בטוח."}
+            {query.data.result.anotherImageReasonHe ?? "הזווית הנוכחית אינה מספיקה לזיהוי בטוח."}
           </p>
         </div>
       )}
@@ -262,18 +244,14 @@ export function AnalysisReviewPage(): React.JSX.Element {
         {items.map((item, index) => (
           <article className="food-component" key={item.id}>
             <header>
-              <span
-                className={`confidence-mark confidence-mark--${item.confidence}`}
-              >
+              <span className={`confidence-mark confidence-mark--${item.confidence}`}>
                 {confidenceName(item.confidence)}
               </span>
               <button
                 type="button"
                 aria-label="הסרת רכיב"
                 onClick={() =>
-                  setItems((current) =>
-                    current.filter((candidate) => candidate.id !== item.id),
-                  )
+                  setItems((current) => current.filter((candidate) => candidate.id !== item.id))
                 }
               >
                 ×
@@ -301,9 +279,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
               <span>מה זה?</span>
               <input
                 value={item.nameHe}
-                onChange={(event) =>
-                  updateItem(index, { nameHe: event.target.value })
-                }
+                onChange={(event) => updateItem(index, { nameHe: event.target.value })}
               />
             </label>
             <SavedProductPicker
@@ -325,9 +301,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
                 <input
                   inputMode="decimal"
                   value={item.calories}
-                  onChange={(event) =>
-                    updateItem(index, { calories: event.target.value })
-                  }
+                  onChange={(event) => updateItem(index, { calories: event.target.value })}
                   placeholder="לא ידוע"
                 />
               </label>
@@ -340,9 +314,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
                   <input
                     inputMode="decimal"
                     value={item.protein}
-                    onChange={(event) =>
-                      updateItem(index, { protein: event.target.value })
-                    }
+                    onChange={(event) => updateItem(index, { protein: event.target.value })}
                   />
                 </label>
                 <label>
@@ -350,9 +322,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
                   <input
                     inputMode="decimal"
                     value={item.carbs}
-                    onChange={(event) =>
-                      updateItem(index, { carbs: event.target.value })
-                    }
+                    onChange={(event) => updateItem(index, { carbs: event.target.value })}
                   />
                 </label>
                 <label>
@@ -360,9 +330,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
                   <input
                     inputMode="decimal"
                     value={item.fat}
-                    onChange={(event) =>
-                      updateItem(index, { fat: event.target.value })
-                    }
+                    onChange={(event) => updateItem(index, { fat: event.target.value })}
                   />
                 </label>
                 <label>
@@ -370,9 +338,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
                   <input
                     inputMode="decimal"
                     value={item.fiber}
-                    onChange={(event) =>
-                      updateItem(index, { fiber: event.target.value })
-                    }
+                    onChange={(event) => updateItem(index, { fiber: event.target.value })}
                   />
                 </label>
               </div>
@@ -407,9 +373,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
         </button>
       </div>
       {items.some((item) => item.confidence === "low") && (
-        <p className="confirmation-required">
-          נדרש אישור: לפחות רכיב אחד זוהה בביטחון נמוך.
-        </p>
+        <p className="confirmation-required">נדרש אישור: לפחות רכיב אחד זוהה בביטחון נמוך.</p>
       )}
       {message && (
         <p className="status-message" role="alert">
@@ -428,9 +392,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
 
   function updateItem(index: number, changes: Partial<EditableItem>): void {
     setItems((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index ? { ...item, ...changes } : item,
-      ),
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...changes } : item)),
     );
   }
 
@@ -450,9 +412,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
       current.map((item, itemIndex) => {
         if (itemIndex !== index) return item;
         const amount =
-          item.amount && Number(item.amount) > 0
-            ? item.amount
-            : String(product.base_quantity);
+          item.amount && Number(item.amount) > 0 ? item.amount : String(product.base_quantity);
         return {
           ...item,
           nameHe: product.canonical_name_he,
@@ -492,10 +452,9 @@ function SavedProductPicker(props: {
           onChange={(event) => setSearchText(event.target.value)}
           placeholder="חפש שם, מותג או ברקוד"
         />
-        {searchText.trim().length > 1 &&
-          products.data?.results.length === 0 && (
-            <small>לא נמצא מוצר מתאים. אפשר להשאיר את הזיהוי הנוכחי.</small>
-          )}
+        {searchText.trim().length > 1 && products.data?.results.length === 0 && (
+          <small>לא נמצא מוצר מתאים. אפשר להשאיר את הזיהוי הנוכחי.</small>
+        )}
         <ul>
           {products.data?.results.slice(0, 8).map((product) => (
             <li key={product.id}>
@@ -508,9 +467,7 @@ function SavedProductPicker(props: {
               >
                 <span>
                   <strong>{product.canonical_name_he}</strong>
-                  <small>
-                    {product.brand ?? product.barcode ?? "מוצר שמור"}
-                  </small>
+                  <small>{product.brand ?? product.barcode ?? "מוצר שמור"}</small>
                 </span>
                 <span>
                   {formatNutrient(product.energy_kcal)} קל׳ /{" "}
@@ -526,10 +483,7 @@ function SavedProductPicker(props: {
   );
 }
 
-function scaledNutrients(
-  product: ProductBasis,
-  amountText: string,
-): Partial<EditableItem> {
+function scaledNutrients(product: ProductBasis, amountText: string): Partial<EditableItem> {
   const amount = Number(amountText);
   if (!Number.isFinite(amount) || amount < 0 || product.base_quantity <= 0) {
     return { calories: "", protein: "", carbs: "", fat: "", fiber: "" };
@@ -558,11 +512,7 @@ function numericOrBlank(value: string): boolean {
 }
 
 function confidenceName(value: "high" | "medium" | "low"): string {
-  return value === "high"
-    ? "זיהוי ברור"
-    : value === "medium"
-      ? "כדאי לבדוק"
-      : "נדרש אישור";
+  return value === "high" ? "זיהוי ברור" : value === "medium" ? "כדאי לבדוק" : "נדרש אישור";
 }
 
 function suggestedCategory(): "breakfast" | "lunch" | "dinner" | "snack" {
@@ -576,7 +526,5 @@ function suggestedCategory(): "breakfast" | "lunch" | "dinner" | "snack" {
 function formatNutrient(value: number | null): string {
   return value === null
     ? "—"
-    : new Intl.NumberFormat("he-IL", { maximumFractionDigits: 1 }).format(
-        value,
-      );
+    : new Intl.NumberFormat("he-IL", { maximumFractionDigits: 1 }).format(value);
 }

@@ -1,16 +1,9 @@
 const SHELL_CACHE = "rega-tov-shell-v4";
 const RUNTIME_CACHE = "rega-tov-runtime-v4";
-const SHELL = [
-  "/",
-  "/offline.html",
-  "/manifest.webmanifest",
-  "/icons/icon-192.png",
-];
+const SHELL = ["/", "/offline.html", "/manifest.webmanifest", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL)),
-  );
+  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL)));
   self.skipWaiting();
 });
 
@@ -39,15 +32,9 @@ self.addEventListener("fetch", (event) => {
     fetch(request)
       .then((response) => {
         const copy = response.clone();
-        void caches
-          .open(RUNTIME_CACHE)
-          .then((cache) => cache.put(request, copy));
+        void caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
         return response;
       })
-      .catch(() =>
-        caches
-          .match(request)
-          .then((cached) => cached ?? caches.match("/offline.html")),
-      ),
+      .catch(() => caches.match(request).then((cached) => cached ?? caches.match("/offline.html"))),
   );
 });

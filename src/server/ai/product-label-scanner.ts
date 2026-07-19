@@ -2,12 +2,7 @@ import { z } from "zod";
 import type { RuntimeEnv } from "../context";
 import { logEvent } from "../services/logger";
 
-const nullableNutrient = z
-  .number()
-  .finite()
-  .nonnegative()
-  .nullable()
-  .catch(null);
+const nullableNutrient = z.number().finite().nonnegative().nullable().catch(null);
 
 const productLabelResultSchema = z.object({
   suggestedNameHe: z.string().trim().max(160).nullable().catch(null),
@@ -20,13 +15,7 @@ const productLabelResultSchema = z.object({
   baseQuantity: z.number().finite().positive().max(10_000).catch(100),
   baseUnit: z.enum(["g", "ml"]).catch("g"),
   servingDescriptionHe: z.string().trim().max(120).nullable().catch(null),
-  servingWeight: z
-    .number()
-    .finite()
-    .positive()
-    .max(10_000)
-    .nullable()
-    .catch(null),
+  servingWeight: z.number().finite().positive().max(10_000).nullable().catch(null),
   nutrients: z.object({
     energyKcal: nullableNutrient,
     protein: nullableNutrient,
@@ -89,12 +78,10 @@ export async function scanProductLabel(options: {
     });
 
     const candidate = extractCandidate(raw);
-    if (candidate === null)
-      throw new Error("AI label scan returned invalid JSON");
+    if (candidate === null) throw new Error("AI label scan returned invalid JSON");
 
     const parsed = productLabelResultSchema.safeParse(candidate);
-    if (!parsed.success)
-      throw new Error("AI label scan did not match the expected schema");
+    if (!parsed.success) throw new Error("AI label scan did not match the expected schema");
     return parsed.data;
   } catch (error) {
     logEvent({
@@ -105,9 +92,7 @@ export async function scanProductLabel(options: {
       retryable: true,
       details: {
         errorMessage:
-          error instanceof Error
-            ? error.message.slice(0, 500)
-            : "Unknown label scan error",
+          error instanceof Error ? error.message.slice(0, 500) : "Unknown label scan error",
         model: options.env.AI_FAST_MODEL,
       },
     });

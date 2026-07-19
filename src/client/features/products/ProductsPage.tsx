@@ -41,9 +41,7 @@ type BarcodeDetectorLike = {
   detect(source: ImageBitmapSource): Promise<Array<{ rawValue: string }>>;
 };
 
-type BarcodeDetectorConstructor = new (options: {
-  formats: string[];
-}) => BarcodeDetectorLike;
+type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorLike;
 
 type ProductDraft = {
   nameHe: string;
@@ -89,8 +87,7 @@ export function ProductsPage(): React.JSX.Element {
 
   const library = useQuery({
     queryKey: ["products"],
-    queryFn: () =>
-      apiRequest<{ products: ProductSummary[] }>("/api/v1/products"),
+    queryFn: () => apiRequest<{ products: ProductSummary[] }>("/api/v1/products"),
   });
   const search = useQuery({
     queryKey: ["product-search", queryText],
@@ -112,9 +109,7 @@ export function ProductsPage(): React.JSX.Element {
           baseQuantity: Number(draft.baseQuantity),
           baseUnit: draft.baseUnit,
           servingDescriptionHe: draft.servingDescriptionHe || null,
-          servingWeight: draft.servingWeight
-            ? Number(draft.servingWeight)
-            : null,
+          servingWeight: draft.servingWeight ? Number(draft.servingWeight) : null,
           sourceType: draft.sourceType,
           nutrients: (
             [
@@ -141,27 +136,18 @@ export function ProductsPage(): React.JSX.Element {
       void queryClient.invalidateQueries({ queryKey: ["product-search"] });
     },
     onError: (error) =>
-      setMessage(
-        error instanceof ClientApiError
-          ? error.messageHe
-          : "לא הצלחנו לשמור את המוצר",
-      ),
+      setMessage(error instanceof ClientApiError ? error.messageHe : "לא הצלחנו לשמור את המוצר"),
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) =>
-      apiRequest(`/api/v1/products/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiRequest(`/api/v1/products/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       setMessage("המוצר הוסר");
       void queryClient.invalidateQueries({ queryKey: ["products"] });
       void queryClient.invalidateQueries({ queryKey: ["product-search"] });
     },
     onError: (error) =>
-      setMessage(
-        error instanceof ClientApiError
-          ? error.messageHe
-          : "לא הצלחנו להסיר את המוצר",
-      ),
+      setMessage(error instanceof ClientApiError ? error.messageHe : "לא הצלחנו להסיר את המוצר"),
   });
 
   const scanWithAi = async (file: File): Promise<LabelScan> => {
@@ -205,9 +191,7 @@ export function ProductsPage(): React.JSX.Element {
         }));
         setQueryText(detectedBarcode);
         setShowForm(true);
-        setMessage(
-          `זוהה ברקוד ${detectedBarcode}. אפשר להשלים שם וערכים ולשמור.`,
-        );
+        setMessage(`זוהה ברקוד ${detectedBarcode}. אפשר להשלים שם וערכים ולשמור.`);
       } else {
         setShowForm(true);
         setMessage("לא הצלחנו לקרוא את הברקוד. אפשר להקליד אותו ידנית.");
@@ -233,9 +217,7 @@ export function ProductsPage(): React.JSX.Element {
       const scan = await scanWithAi(file);
       applyLabelScan(scan);
       const confidenceText =
-        scan.confidence === "high"
-          ? "הקריאה נראית ברורה"
-          : "כדאי לבדוק את הערכים מול התווית";
+        scan.confidence === "high" ? "הקריאה נראית ברורה" : "כדאי לבדוק את הערכים מול התווית";
       setMessage(`${confidenceText}. הוסף או תקן את שם המוצר לפני השמירה.`);
     } catch (error) {
       setShowForm(true);
@@ -251,9 +233,7 @@ export function ProductsPage(): React.JSX.Element {
   };
 
   const visibleProducts =
-    queryText.trim().length > 1
-      ? (search.data?.results ?? [])
-      : (library.data?.products ?? []);
+    queryText.trim().length > 1 ? (search.data?.results ?? []) : (library.data?.products ?? []);
 
   return (
     <div className="page products-page">
@@ -264,20 +244,12 @@ export function ProductsPage(): React.JSX.Element {
       </section>
 
       <div className="product-scan-actions">
-        <button
-          type="button"
-          onClick={() => barcodeInput.current?.click()}
-          disabled={scanning}
-        >
+        <button type="button" onClick={() => barcodeInput.current?.click()} disabled={scanning}>
           <span aria-hidden="true">▥</span>
           <strong>סריקת ברקוד</strong>
           <small>צלם את הקווים והמספר</small>
         </button>
-        <button
-          type="button"
-          onClick={() => labelInput.current?.click()}
-          disabled={scanning}
-        >
+        <button type="button" onClick={() => labelInput.current?.click()} disabled={scanning}>
           <span aria-hidden="true">▤</span>
           <strong>צילום ערכים</strong>
           <small>צלם את טבלת הסימון התזונתי</small>
@@ -329,9 +301,7 @@ export function ProductsPage(): React.JSX.Element {
 
       <section className="product-library">
         <div className="section-heading">
-          <h2>
-            {queryText.trim().length > 1 ? "תוצאות חיפוש" : "המוצרים שלי"}
-          </h2>
+          <h2>{queryText.trim().length > 1 ? "תוצאות חיפוש" : "המוצרים שלי"}</h2>
           <small>{visibleProducts.length} מוצרים</small>
         </div>
         {visibleProducts.length === 0 ? (
@@ -361,8 +331,7 @@ export function ProductsPage(): React.JSX.Element {
                 <div className="product-card__meta">
                   <span>{product.barcode ?? "ללא ברקוד"}</span>
                   <span>
-                    ל-{formatNumber(product.base_quantity)}{" "}
-                    {unitName(product.base_unit)}
+                    ל-{formatNumber(product.base_quantity)} {unitName(product.base_unit)}
                   </span>
                 </div>
                 <div className="product-card__nutrients">
@@ -402,11 +371,7 @@ export function ProductsPage(): React.JSX.Element {
               <p className="eyebrow">אישור לפני שמירה</p>
               <h2>תיוג המוצר והערכים</h2>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              aria-label="סגירת הטופס"
-            >
+            <button type="button" onClick={() => setShowForm(false)} aria-label="סגירת הטופס">
               ×
             </button>
           </div>
@@ -432,9 +397,7 @@ export function ProductsPage(): React.JSX.Element {
               <span>ברקוד</span>
               <input
                 value={draft.barcode}
-                onChange={(event) =>
-                  updateDraft("barcode", event.target.value.replace(/\D/gu, ""))
-                }
+                onChange={(event) => updateDraft("barcode", event.target.value.replace(/\D/gu, ""))}
                 inputMode="numeric"
                 pattern="[0-9]{8,14}"
               />
@@ -445,9 +408,7 @@ export function ProductsPage(): React.JSX.Element {
               <span>הערכים הם עבור</span>
               <input
                 value={draft.baseQuantity}
-                onChange={(event) =>
-                  updateDraft("baseQuantity", event.target.value)
-                }
+                onChange={(event) => updateDraft("baseQuantity", event.target.value)}
                 inputMode="decimal"
                 required
               />
@@ -457,10 +418,7 @@ export function ProductsPage(): React.JSX.Element {
               <select
                 value={draft.baseUnit}
                 onChange={(event) =>
-                  updateDraft(
-                    "baseUnit",
-                    event.target.value === "ml" ? "ml" : "g",
-                  )
+                  updateDraft("baseUnit", event.target.value === "ml" ? "ml" : "g")
                 }
               >
                 <option value="g">גרם</option>
@@ -473,9 +431,7 @@ export function ProductsPage(): React.JSX.Element {
               קלוריות
               <input
                 value={draft.energyKcal}
-                onChange={(event) =>
-                  updateDraft("energyKcal", event.target.value)
-                }
+                onChange={(event) => updateDraft("energyKcal", event.target.value)}
                 inputMode="decimal"
               />
             </label>
@@ -491,9 +447,7 @@ export function ProductsPage(): React.JSX.Element {
               פחמימות
               <input
                 value={draft.carbohydrate}
-                onChange={(event) =>
-                  updateDraft("carbohydrate", event.target.value)
-                }
+                onChange={(event) => updateDraft("carbohydrate", event.target.value)}
                 inputMode="decimal"
               />
             </label>
@@ -521,9 +475,7 @@ export function ProductsPage(): React.JSX.Element {
                 <span>תיאור מנה</span>
                 <input
                   value={draft.servingDescriptionHe}
-                  onChange={(event) =>
-                    updateDraft("servingDescriptionHe", event.target.value)
-                  }
+                  onChange={(event) => updateDraft("servingDescriptionHe", event.target.value)}
                   placeholder="גביע אחד"
                 />
               </label>
@@ -531,9 +483,7 @@ export function ProductsPage(): React.JSX.Element {
                 <span>משקל מנה</span>
                 <input
                   value={draft.servingWeight}
-                  onChange={(event) =>
-                    updateDraft("servingWeight", event.target.value)
-                  }
+                  onChange={(event) => updateDraft("servingWeight", event.target.value)}
                   inputMode="decimal"
                 />
               </label>
@@ -542,11 +492,7 @@ export function ProductsPage(): React.JSX.Element {
           <p className="fine-print">
             תוצאת הצילום היא הצעה בלבד. בדוק את המספרים מול האריזה לפני השמירה.
           </p>
-          <button
-            className="primary-action"
-            type="submit"
-            disabled={create.isPending}
-          >
+          <button className="primary-action" type="submit" disabled={create.isPending}>
             {create.isPending ? "שומרים…" : "אישור ושמירת מוצר"}
           </button>
         </form>
@@ -573,10 +519,7 @@ export function ProductsPage(): React.JSX.Element {
     setShowForm(true);
   }
 
-  function updateDraft<K extends keyof ProductDraft>(
-    key: K,
-    value: ProductDraft[K],
-  ): void {
+  function updateDraft<K extends keyof ProductDraft>(key: K, value: ProductDraft[K]): void {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 }
@@ -591,9 +534,7 @@ function toDraftNumber(value: number | null): string {
 
 function formatNumber(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("he-IL", { maximumFractionDigits: 1 }).format(
-    value,
-  );
+  return new Intl.NumberFormat("he-IL", { maximumFractionDigits: 1 }).format(value);
 }
 
 function unitName(unit: "g" | "ml"): string {

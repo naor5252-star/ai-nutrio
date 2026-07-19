@@ -30,13 +30,7 @@ const productInputSchema = z.object({
   baseQuantity: z.number().finite().positive().max(10_000).default(100),
   baseUnit: z.enum(["g", "ml"]),
   servingDescriptionHe: z.string().trim().max(120).nullable().optional(),
-  servingWeight: z
-    .number()
-    .finite()
-    .positive()
-    .max(10_000)
-    .nullable()
-    .optional(),
+  servingWeight: z.number().finite().positive().max(10_000).nullable().optional(),
   sourceType: z.enum(["label", "manual"]),
   nutrients: z.array(nutrientInputSchema).min(1).max(100),
 });
@@ -137,8 +131,7 @@ productRoutes.get("/barcode/:barcode", async (context) => {
 });
 
 productRoutes.post("/label/scan", requireCsrf, async (context) => {
-  const contentType =
-    (context.req.header("content-type") ?? "").split(";")[0]?.trim() ?? "";
+  const contentType = (context.req.header("content-type") ?? "").split(";")[0]?.trim() ?? "";
   if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
     throw new AppError({
       status: 415,
@@ -178,8 +171,7 @@ productRoutes.post("/label/scan", requireCsrf, async (context) => {
     throw new AppError({
       status: 502,
       code: "LABEL_SCAN_FAILED",
-      messageHe:
-        "לא הצלחנו לקרוא את התווית אוטומטית. אפשר למלא את הערכים ידנית.",
+      messageHe: "לא הצלחנו לקרוא את התווית אוטומטית. אפשר למלא את הערכים ידנית.",
       retryable: true,
     });
   }
@@ -290,19 +282,11 @@ productRoutes.delete("/:id", requireCsrf, async (context) => {
   return context.json({ ok: true });
 });
 
-function matchesImageSignature(
-  bytes: Uint8Array,
-  contentType: string,
-): boolean {
+function matchesImageSignature(bytes: Uint8Array, contentType: string): boolean {
   if (contentType === "image/jpeg")
     return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
   if (contentType === "image/png")
-    return (
-      bytes[0] === 0x89 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x4e &&
-      bytes[3] === 0x47
-    );
+    return bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
   if (contentType === "image/webp") {
     return (
       String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
