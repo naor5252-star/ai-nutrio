@@ -21,10 +21,7 @@ type SideNavigationProps = {
   onClose: () => void;
 };
 
-export function SideNavigation({
-  open,
-  onClose,
-}: SideNavigationProps): React.JSX.Element | null {
+export function SideNavigation({ open, onClose }: SideNavigationProps): React.JSX.Element | null {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -86,9 +83,7 @@ export function SideNavigation({
               key={item.to}
               to={item.to}
               end={item.end}
-              className={({ isActive }) =>
-                `side-menu__item${isActive ? " is-active" : ""}`
-              }
+              className={({ isActive }) => `side-menu__item${isActive ? " is-active" : ""}`}
               onClick={onClose}
             >
               <span className="side-menu__icon" aria-hidden="true">
@@ -101,9 +96,7 @@ export function SideNavigation({
             </NavLink>
           ))}
         </nav>
-        <footer className="side-menu__footer">
-          כפתור ההוספה נשאר תמיד נגיש במרכז המסך.
-        </footer>
+        <footer className="side-menu__footer">כפתור ההוספה נשאר תמיד נגיש במרכז המסך.</footer>
       </aside>
     </div>
   );

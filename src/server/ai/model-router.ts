@@ -30,20 +30,14 @@ export async function analyzeMealImages(
     return { result: disabledResult(), model: null, route: "disabled" };
 
   const fastModel = env.AI_FAST_MODEL;
-  const fastRaw = await aiValue.run(
-    fastModel,
-    createVisionPayload(images, false),
-  );
+  const fastRaw = await aiValue.run(fastModel, createVisionPayload(images, false));
   const fastParsed = parseModelResponse(fastRaw);
   if (fastParsed && !needsEscalation(fastParsed)) {
     return { result: fastParsed, model: fastModel, route: "fast" };
   }
 
   const strongModel = env.AI_STRONG_MODEL;
-  const strongRaw = await aiValue.run(
-    strongModel,
-    createVisionPayload(images, true),
-  );
+  const strongRaw = await aiValue.run(strongModel, createVisionPayload(images, true));
   const strongParsed = parseModelResponse(strongRaw);
   if (strongParsed)
     return {
@@ -51,21 +45,15 @@ export async function analyzeMealImages(
       model: strongModel,
       route: "fast_then_strong",
     };
-  if (fastParsed)
-    return { result: fastParsed, model: fastModel, route: "fast" };
+  if (fastParsed) return { result: fastParsed, model: fastModel, route: "fast" };
   return {
-    result: disabledResult(
-      "המודל לא החזיר תשובה תקינה. אפשר להזין את הארוחה ידנית.",
-    ),
+    result: disabledResult("המודל לא החזיר תשובה תקינה. אפשר להזין את הארוחה ידנית."),
     model: strongModel,
     route: "fast_then_strong",
   };
 }
 
-function createVisionPayload(
-  images: ImageInput[],
-  strong: boolean,
-): Record<string, unknown> {
+function createVisionPayload(images: ImageInput[], strong: boolean): Record<string, unknown> {
   const content: Array<Record<string, unknown>> = [
     {
       type: "text",
@@ -178,12 +166,7 @@ function createVisionPayload(
             needsAnotherImage: { type: "boolean" },
             anotherImageReasonHe: { type: "string" },
           },
-          required: [
-            "analysisVersion",
-            "detectedItems",
-            "overallConfidence",
-            "needsAnotherImage",
-          ],
+          required: ["analysisVersion", "detectedItems", "overallConfidence", "needsAnotherImage"],
         },
       },
     },
@@ -257,9 +240,7 @@ function stripCodeFence(value: string): string {
 
 function isGenericAiBinding(value: unknown): value is GenericAiBinding {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof Reflect.get(value, "run") === "function"
+    typeof value === "object" && value !== null && typeof Reflect.get(value, "run") === "function"
   );
 }
 
@@ -313,9 +294,7 @@ function disabledResult(
       },
     ],
     overallConfidence: "low",
-    clarificationQuestions: [
-      { questionId: "manual-entry", questionHe: "מה מופיע בארוחה?" },
-    ],
+    clarificationQuestions: [{ questionId: "manual-entry", questionHe: "מה מופיע בארוחה?" }],
     needsAnotherImage: false,
   };
 }

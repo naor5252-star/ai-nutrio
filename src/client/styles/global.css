@@ -266,8 +266,7 @@ small {
   width: min(86vw, 360px);
   display: flex;
   flex-direction: column;
-  padding: calc(18px + env(safe-area-inset-top, 0px)) 18px
-    calc(18px + var(--safe-bottom));
+  padding: calc(18px + env(safe-area-inset-top, 0px)) 18px calc(18px + var(--safe-bottom));
   background: var(--cream);
   box-shadow: -18px 0 50px rgba(25, 30, 26, 0.24);
   animation: side-menu-in 0.22s ease-out;
