@@ -82,7 +82,7 @@ export function SideNavigation({ open, onClose }: SideNavigationProps): React.JS
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.end}
+              end={item.end === true}
               className={({ isActive }) => `side-menu__item${isActive ? " is-active" : ""}`}
               onClick={onClose}
             >
