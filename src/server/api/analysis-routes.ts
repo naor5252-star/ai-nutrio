@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { manualMealSchema } from "../../shared/schemas/api";
+import type { MealAnalysisResult } from "../../shared/schemas/meal-analysis";
 import type { AppEnv } from "../context";
 import { requireAuth, requireCsrf } from "../auth/session";
 import { AppError } from "./errors";
@@ -37,6 +38,92 @@ analysisRoutes.post("/jobs", requireCsrf, async (context) => {
     .bind(jobId, user.id, input.jobType, input.clientMutationId, now, now)
     .run();
   return context.json({ jobId, status: "uploading" }, 201);
+});
+
+analysisRoutes.post("/jobs/text", requireCsrf, async (context) => {
+  const input = z
+    .object({
+      clientMutationId: z.string().uuid(),
+      text: z.string().trim().min(2).max(2_000),
+    })
+    .parse(await context.req.json());
+  const user = context.get("user");
+  const existing = await context.env.DB.prepare(
+    "SELECT id, status FROM analysis_jobs WHERE owner_user_id = ? AND client_mutation_id = ?",
+  )
+    .bind(user.id, input.clientMutationId)
+    .first<{ id: string; status: string }>();
+  if (existing) {
+    return context.json({
+      jobId: existing.id,
+      status: existing.status,
+      idempotentReplay: true,
+    });
+  }
+
+  const jobId = secureUuid();
+  const now = nowIso();
+  await context.env.DB.prepare(
+    "INSERT INTO analysis_jobs (id, owner_user_id, job_type, status, client_mutation_id, created_at, updated_at) VALUES (?, ?, 'meal', 'queued', ?, ?, ?)",
+  )
+    .bind(jobId, user.id, input.clientMutationId, now, now)
+    .run();
+
+  try {
+    const instance = await context.env.MEAL_ANALYSIS.create({
+      id: jobId,
+      params: { jobId, userId: user.id, mealText: input.text },
+    });
+    await context.env.DB.prepare(
+      "UPDATE analysis_jobs SET workflow_instance_id = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?",
+    )
+      .bind(instance.id, nowIso(), jobId, user.id)
+      .run();
+  } catch {
+    await context.env.DB.prepare(
+      "UPDATE analysis_jobs SET status = 'failed', error_code = 'TEXT_ANALYSIS_START_FAILED', error_message_he = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?",
+    )
+      .bind("לא הצלחנו להתחיל את ניתוח הטקסט. אפשר לנסות שוב.", nowIso(), jobId, user.id)
+      .run();
+    throw new AppError({
+      status: 503,
+      code: "TEXT_ANALYSIS_START_FAILED",
+      messageHe: "לא הצלחנו להתחיל את ניתוח הטקסט. אפשר לנסות שוב.",
+    });
+  }
+
+  return context.json({ jobId, status: "queued" }, 202);
+});
+
+analysisRoutes.post("/jobs/manual", requireCsrf, async (context) => {
+  const input = z.object({ clientMutationId: z.string().uuid() }).parse(await context.req.json());
+  const user = context.get("user");
+  const existing = await context.env.DB.prepare(
+    "SELECT id, status FROM analysis_jobs WHERE owner_user_id = ? AND client_mutation_id = ?",
+  )
+    .bind(user.id, input.clientMutationId)
+    .first<{ id: string; status: string }>();
+  if (existing) {
+    return context.json({
+      jobId: existing.id,
+      status: existing.status,
+      idempotentReplay: true,
+    });
+  }
+
+  const jobId = secureUuid();
+  const now = nowIso();
+  const result = manualEntryResult();
+  await context.env.DB.batch([
+    context.env.DB.prepare(
+      "INSERT INTO analysis_jobs (id, owner_user_id, job_type, status, client_mutation_id, overall_confidence, analysis_version, completed_at, created_at, updated_at) VALUES (?, ?, 'meal', 'needs_user_input', ?, 'high', 'manual-entry-v1', ?, ?, ?)",
+    ).bind(jobId, user.id, input.clientMutationId, now, now, now),
+    context.env.DB.prepare(
+      "INSERT INTO analysis_results (analysis_job_id, result_json, source_model, model_route, validated, created_at) VALUES (?, ?, NULL, 'disabled', 1, ?)",
+    ).bind(jobId, JSON.stringify(result), now),
+  ]);
+
+  return context.json({ jobId, status: "needs_user_input" }, 201);
 });
 
 analysisRoutes.put("/jobs/:jobId/images/:index", requireCsrf, async (context) => {
@@ -222,6 +309,30 @@ analysisRoutes.post("/jobs/:jobId/retry", requireCsrf, async (context) => {
     .run();
   return context.json({ jobId, status: "queued" }, 202);
 });
+
+function manualEntryResult(): MealAnalysisResult {
+  return {
+    analysisVersion: "manual-entry-v1",
+    detectedItems: [
+      {
+        temporaryId: secureUuid(),
+        candidateNameHe: "רכיב להזנה",
+        estimatedQuantity: null,
+        estimatedUnit: null,
+        estimatedGrams: null,
+        foodIdentityConfidence: "high",
+        quantityConfidence: "high",
+        nutritionConfidence: "high",
+        plausibleCaloriesMin: null,
+        plausibleCaloriesMax: null,
+        notes: [],
+      },
+    ],
+    overallConfidence: "high",
+    clarificationQuestions: [],
+    needsAnotherImage: false,
+  };
+}
 
 function matchesFileSignature(bytes: Uint8Array, contentType: string): boolean {
   if (contentType === "image/jpeg")

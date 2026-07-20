@@ -53,6 +53,83 @@ export async function analyzeMealImages(
   };
 }
 
+export async function analyzeMealText(
+  env: RuntimeEnv,
+  description: string,
+): Promise<AiRouteResult> {
+  if (env.AI_ENABLED !== "true") {
+    return {
+      result: disabledTextResult("ניתוח טקסט באמצעות AI אינו זמין כרגע."),
+      model: null,
+      route: "disabled",
+    };
+  }
+
+  const aiValue: unknown = env.AI;
+  if (!isGenericAiBinding(aiValue)) {
+    return {
+      result: disabledTextResult("ניתוח טקסט באמצעות AI אינו זמין כרגע."),
+      model: null,
+      route: "disabled",
+    };
+  }
+
+  const strongModel = env.AI_STRONG_MODEL;
+  const raw = await aiValue.run(strongModel, createTextPayload(description));
+  const parsed = parseModelResponse(raw);
+  if (parsed) {
+    return {
+      result: {
+        ...parsed,
+        analysisVersion: "meal-text-v1",
+        needsAnotherImage: false,
+      },
+      model: strongModel,
+      route: "fast_then_strong",
+    };
+  }
+
+  return {
+    result: disabledTextResult("לא הצלחנו להפוך את התיאור לרכיבים. אפשר להשלים את הארוחה ידנית."),
+    model: strongModel,
+    route: "fast_then_strong",
+  };
+}
+
+function createTextPayload(description: string): Record<string, unknown> {
+  const basePayload = createVisionPayload([], true);
+  return {
+    ...basePayload,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a cautious nutrition meal-log parser. Convert only the food the user explicitly says they ate into structured meal components. Return Hebrew food names, use the required JSON schema, and never diagnose.",
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: [
+              'הפוך את תיאור הארוחה הבא לרכיבים נפרדים: "' + description + '".',
+              'הגדר analysisVersion כ-"meal-text-v1" ואת needsAnotherImage כ-false.',
+              "פצל מאכלים שהמשתמש ציין במפורש. אל תפרק מנה מוכנה למרכיבים פנימיים שלא צוינו.",
+              "שמור כמויות ויחידות שנכתבו. המר לגרמים רק כאשר ההמרה סבירה וברורה.",
+              "כאשר כמות חסרה, השאר estimatedGrams כ-null וסמן quantityConfidence כ-low.",
+              "הערך טווח קלוריות שמרני. אל תנחש שמן, רוטב, תוספת, מותג או שיטת בישול שלא צוינו.",
+              "הוסף clarificationQuestions קצרות רק לפרטים שחסרים ומשפיעים משמעותית על ההערכה.",
+              "החזר JSON בלבד לפי הסכמה.",
+            ].join(" "),
+          },
+        ],
+      },
+    ],
+    max_tokens: 3_200,
+    temperature: 0.05,
+  };
+}
+
 function createVisionPayload(images: ImageInput[], strong: boolean): Record<string, unknown> {
   const content: Array<Record<string, unknown>> = [
     {
@@ -271,6 +348,14 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
     );
   }
   return btoa(binary);
+}
+
+function disabledTextResult(note: string): MealAnalysisResult {
+  return {
+    ...disabledResult(note),
+    analysisVersion: "meal-text-v1",
+    needsAnotherImage: false,
+  };
 }
 
 function disabledResult(

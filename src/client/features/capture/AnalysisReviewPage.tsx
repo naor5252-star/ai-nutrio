@@ -80,10 +80,11 @@ export function AnalysisReviewPage(): React.JSX.Element {
 
   useEffect(() => {
     if (!query.data?.result || items.length > 0) return;
+    const manualEntry = query.data.result.analysisVersion === "manual-entry-v1";
     setItems(
       query.data.result.detectedItems.map((item) => ({
         id: item.temporaryId,
-        nameHe: item.candidateNameHe,
+        nameHe: manualEntry ? "" : item.candidateNameHe,
         amount: item.estimatedGrams?.toString() ?? "",
         baseUnit: "g",
         calories:
@@ -94,15 +95,17 @@ export function AnalysisReviewPage(): React.JSX.Element {
         carbs: "",
         fat: "",
         fiber: "",
-        confidence: [
-          item.foodIdentityConfidence,
-          item.quantityConfidence,
-          item.nutritionConfidence,
-        ].includes("low")
-          ? "low"
-          : item.foodIdentityConfidence,
+        confidence: manualEntry
+          ? "high"
+          : [
+                item.foodIdentityConfidence,
+                item.quantityConfidence,
+                item.nutritionConfidence,
+              ].includes("low")
+            ? "low"
+            : item.foodIdentityConfidence,
         foodId: null,
-        sourceType: "ai_estimate",
+        sourceType: manualEntry ? "manual" : "ai_estimate",
         productBasis: null,
       })),
     );
@@ -172,6 +175,9 @@ export function AnalysisReviewPage(): React.JSX.Element {
     );
   }
   const status = query.data.job.status;
+  const analysisVersion = query.data.result?.analysisVersion ?? "";
+  const isManualEntry = analysisVersion === "manual-entry-v1";
+  const isTextEntry = analysisVersion === "meal-text-v1";
   if (["queued", "uploading", "processing"].includes(status)) {
     return (
       <div className="page analysis-wait">
@@ -228,11 +234,23 @@ export function AnalysisReviewPage(): React.JSX.Element {
   return (
     <div className="page analysis-review-page">
       <section className="page-title">
-        <p className="eyebrow">הניתוח מוכן</p>
-        <h1>בדוק את הזיהוי</h1>
-        <p>אפשר לתקן ידנית, או לקשר כל רכיב למוצר ששמרת בעבר.</p>
+        <p className="eyebrow">
+          {isManualEntry ? "הזנה ידנית" : isTextEntry ? "ניתוח טקסט מוכן" : "הניתוח מוכן"}
+        </p>
+        <h1>
+          {isManualEntry
+            ? "הוסף את רכיבי הארוחה"
+            : isTextEntry
+              ? "בדוק את הרכיבים מהתיאור"
+              : "בדוק את הזיהוי"}
+        </h1>
+        <p>
+          {isManualEntry
+            ? "מלא שם וכמות לכל רכיב. אפשר גם לבחור מוצר שכבר שמרת."
+            : "אפשר לתקן ידנית, או לקשר כל רכיב למוצר ששמרת בעבר."}
+        </p>
       </section>
-      {query.data.result?.needsAnotherImage && (
+      {!isManualEntry && !isTextEntry && query.data.result?.needsAnotherImage && (
         <div className="uncertainty-banner">
           <strong>תמונה נוספת יכולה לעזור</strong>
           <p>
@@ -372,7 +390,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
           + הוספת רכיב
         </button>
       </div>
-      {items.some((item) => item.confidence === "low") && (
+      {!isManualEntry && items.some((item) => item.confidence === "low") && (
         <p className="confirmation-required">נדרש אישור: לפחות רכיב אחד זוהה בביטחון נמוך.</p>
       )}
       {message && (

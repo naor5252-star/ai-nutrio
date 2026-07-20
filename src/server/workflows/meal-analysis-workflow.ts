@@ -5,7 +5,7 @@ import {
   type MealAnalysisResult,
 } from "../../shared/schemas/meal-analysis";
 import type { RuntimeEnv } from "../context";
-import { analyzeMealImages, type ImageInput } from "../ai/model-router";
+import { analyzeMealImages, analyzeMealText, type ImageInput } from "../ai/model-router";
 import { nowIso } from "../repositories/db";
 import { secureUuid } from "../security/crypto";
 import { logEvent } from "../services/logger";
@@ -18,6 +18,7 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
     step: WorkflowStep,
   ): Promise<{ status: string }> {
     const params = analysisWorkflowParamsSchema.parse(event.payload);
+    const mealText = params.mealText;
     const startedAt = Date.now();
     try {
       await step.do(
@@ -42,38 +43,57 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
         },
       );
 
-      const references = await step.do("validate R2 references", async () => {
-        const rows = await this.env.DB.prepare(
-          `SELECT mo.r2_object_key AS key, mo.content_type AS contentType, mo.size_bytes AS sizeBytes
-             FROM analysis_job_images aji
-             JOIN media_objects mo ON mo.id = aji.media_object_id
-            WHERE aji.analysis_job_id = ? AND mo.owner_user_id = ? AND mo.deleted_at IS NULL AND mo.logical_expires_at > ?
-            ORDER BY aji.image_order`,
-        )
-          .bind(params.jobId, params.userId, nowIso())
-          .all<ImageReference>();
-        if (rows.results.length === 0) throw new Error("No valid images found");
-        for (const reference of rows.results) {
-          if (reference.sizeBytes > 5 * 1024 * 1024) throw new Error("Image exceeds maximum size");
-          const head = await this.env.MEDIA.head(reference.key);
-          if (!head) throw new Error("R2 image missing");
-        }
-        return rows.results;
-      });
-
-      const route = await step.do(
-        "analyze images and validate output",
-        { retries: { limit: 2, delay: "5 seconds", backoff: "exponential" }, timeout: "3 minutes" },
-        async () => {
-          const images: ImageInput[] = [];
-          for (const reference of references) {
-            const object = await this.env.MEDIA.get(reference.key);
-            if (!object) throw new Error("R2 image disappeared during analysis");
-            images.push({ contentType: reference.contentType, bytes: await object.arrayBuffer() });
+      let route: Awaited<ReturnType<typeof analyzeMealImages>>;
+      if (mealText) {
+        route = await step.do(
+          "analyze meal text and validate output",
+          {
+            retries: { limit: 2, delay: "5 seconds", backoff: "exponential" },
+            timeout: "3 minutes",
+          },
+          async () => analyzeMealText(this.env, mealText),
+        );
+      } else {
+        const references = await step.do("validate R2 references", async () => {
+          const rows = await this.env.DB.prepare(
+            `SELECT mo.r2_object_key AS key, mo.content_type AS contentType, mo.size_bytes AS sizeBytes
+               FROM analysis_job_images aji
+               JOIN media_objects mo ON mo.id = aji.media_object_id
+              WHERE aji.analysis_job_id = ? AND mo.owner_user_id = ? AND mo.deleted_at IS NULL AND mo.logical_expires_at > ?
+              ORDER BY aji.image_order`,
+          )
+            .bind(params.jobId, params.userId, nowIso())
+            .all<ImageReference>();
+          if (rows.results.length === 0) throw new Error("No valid images found");
+          for (const reference of rows.results) {
+            if (reference.sizeBytes > 5 * 1024 * 1024)
+              throw new Error("Image exceeds maximum size");
+            const head = await this.env.MEDIA.head(reference.key);
+            if (!head) throw new Error("R2 image missing");
           }
-          return analyzeMealImages(this.env, images);
-        },
-      );
+          return rows.results;
+        });
+
+        route = await step.do(
+          "analyze images and validate output",
+          {
+            retries: { limit: 2, delay: "5 seconds", backoff: "exponential" },
+            timeout: "3 minutes",
+          },
+          async () => {
+            const images: ImageInput[] = [];
+            for (const reference of references) {
+              const object = await this.env.MEDIA.get(reference.key);
+              if (!object) throw new Error("R2 image disappeared during analysis");
+              images.push({
+                contentType: reference.contentType,
+                bytes: await object.arrayBuffer(),
+              });
+            }
+            return analyzeMealImages(this.env, images);
+          },
+        );
+      }
 
       await step.do(
         "persist validated result",
@@ -174,7 +194,9 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
         "UPDATE analysis_jobs SET status = 'failed', error_code = 'ANALYSIS_FAILED', error_message_he = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?",
       )
         .bind(
-          "לא הצלחנו לנתח את התמונה. התמונה נשמרה זמנית ואפשר לנסות שוב.",
+          mealText
+            ? "לא הצלחנו לנתח את תיאור הארוחה. אפשר לנסות שוב או להזין ידנית."
+            : "לא הצלחנו לנתח את התמונה. התמונה נשמרה זמנית ואפשר לנסות שוב.",
           nowIso(),
           params.jobId,
           params.userId,
@@ -194,6 +216,7 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
             error instanceof Error ? error.message.slice(0, 500) : "Unknown workflow error",
           fastModel: this.env.AI_FAST_MODEL,
           strongModel: this.env.AI_STRONG_MODEL,
+          inputMode: mealText ? "text" : "image",
         },
       });
       throw error;

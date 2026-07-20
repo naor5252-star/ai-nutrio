@@ -1,5 +1,5 @@
-const SHELL_CACHE = "rega-tov-shell-v9";
-const RUNTIME_CACHE = "rega-tov-runtime-v9";
+const SHELL_CACHE = "rega-tov-shell-v10";
+const RUNTIME_CACHE = "rega-tov-runtime-v10";
 const SHELL = ["/", "/offline.html", "/manifest.webmanifest", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {

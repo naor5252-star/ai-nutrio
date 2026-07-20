@@ -42,6 +42,7 @@ export type MealAnalysisResult = z.infer<typeof mealAnalysisResultSchema>;
 export const analysisWorkflowParamsSchema = z.object({
   jobId: z.string().uuid(),
   userId: z.string().uuid(),
+  mealText: z.string().trim().min(2).max(2_000).optional(),
 });
 
 export type AnalysisWorkflowParams = z.infer<typeof analysisWorkflowParamsSchema>;
