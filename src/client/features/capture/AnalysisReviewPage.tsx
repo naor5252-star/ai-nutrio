@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRequest, ClientApiError } from "../../app/api";
 import type { AnalysisResult } from "../../app/types";
 
@@ -21,18 +21,39 @@ type ProductSummary = {
   source_type: MealSourceType;
 };
 
-type ProductBasis = Pick<
-  ProductSummary,
-  | "id"
-  | "energy_kcal"
-  | "protein"
-  | "carbohydrate"
-  | "fat"
-  | "fiber"
-  | "base_quantity"
-  | "base_unit"
-  | "source_type"
->;
+type ExternalProductCandidate = {
+  externalId: string;
+  barcode: string | null;
+  nameHe: string;
+  nameOriginal: string | null;
+  brand: string | null;
+  baseQuantity: number;
+  baseUnit: "g" | "ml";
+  servingDescriptionHe: string | null;
+  servingWeight: number | null;
+  nutrients: {
+    energyKcal: number | null;
+    protein: number | null;
+    carbohydrate: number | null;
+    fat: number | null;
+    fiber: number | null;
+  };
+  providerName: "open_food_facts_israel" | "open_food_facts_world";
+  sourceLabelHe: string;
+  sourceRegion: "israel" | "international";
+  imageUrl: string | null;
+  countries: string[];
+};
+
+type ProductBasis = {
+  energy_kcal: number | null;
+  protein: number | null;
+  carbohydrate: number | null;
+  fat: number | null;
+  fiber: number | null;
+  base_quantity: number;
+  base_unit: "g" | "ml";
+};
 
 type EditableItem = {
   id: string;
@@ -58,10 +79,14 @@ type JobResponse = {
     updated_at: string;
   };
   result: AnalysisResult | null;
+  model: string | null;
+  modelRoute: string | null;
 };
 
 export function AnalysisReviewPage(): React.JSX.Element {
   const { jobId } = useParams<{ jobId: string }>();
+  const [searchParams] = useSearchParams();
+  const requestedSource = searchParams.get("source");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [items, setItems] = useState<EditableItem[]>([]);
@@ -176,8 +201,10 @@ export function AnalysisReviewPage(): React.JSX.Element {
   }
   const status = query.data.job.status;
   const analysisVersion = query.data.result?.analysisVersion ?? "";
-  const isManualEntry = analysisVersion === "manual-entry-v1";
-  const isTextEntry = analysisVersion === "meal-text-v1";
+  const isManualEntry = analysisVersion === "manual-entry-v1" || requestedSource === "manual";
+  const isTextEntry = analysisVersion.startsWith("meal-text") || requestedSource === "text";
+  const textAnalysisFallback =
+    analysisVersion === "meal-text-fallback-v2" || query.data.modelRoute === "disabled";
   if (["queued", "uploading", "processing"].includes(status)) {
     return (
       <div className="page analysis-wait">
@@ -186,9 +213,13 @@ export function AnalysisReviewPage(): React.JSX.Element {
           <span />
           <span />
         </div>
-        <p className="eyebrow">הניתוח מתבצע</p>
-        <h1>מפרידים את הארוחה לרכיבים</h1>
-        <p>אנחנו בודקים זהות וכמות בנפרד, כדי שיהיה קל לתקן.</p>
+        <p className="eyebrow">{isTextEntry ? "הטקסט התקבל" : "הניתוח מתבצע"}</p>
+        <h1>{isTextEntry ? "ה־AI מנתח את תיאור הארוחה" : "מפרידים את הארוחה לרכיבים"}</h1>
+        <p>
+          {isTextEntry
+            ? "המסך יתעדכן אוטומטית כשהרכיבים והכמויות יהיו מוכנים לבדיקה."
+            : "אנחנו בודקים זהות וכמות בנפרד, כדי שיהיה קל לתקן."}
+        </p>
         <small>
           עודכן{" "}
           {new Intl.DateTimeFormat("he-IL", {
@@ -246,10 +277,31 @@ export function AnalysisReviewPage(): React.JSX.Element {
         </h1>
         <p>
           {isManualEntry
-            ? "מלא שם וכמות לכל רכיב. אפשר גם לבחור מוצר שכבר שמרת."
+            ? "חפש קודם במוצרים שלך. אם אין התאמה, נחפש אוטומטית במאגר הישראלי והבינלאומי. אפשר גם להקליד מוצר חדש."
             : "אפשר לתקן ידנית, או לקשר כל רכיב למוצר ששמרת בעבר."}
         </p>
       </section>
+      {isTextEntry && (
+        <div
+          className={`text-analysis-result${textAnalysisFallback ? " text-analysis-result--fallback" : ""}`}
+          role="status"
+        >
+          <span aria-hidden="true">{textAnalysisFallback ? "!" : "✦"}</span>
+          <div>
+            <strong>
+              {textAnalysisFallback
+                ? "הטקסט נשמר, אך ה־AI לא הצליח לפרק אותו במלואו"
+                : "הטקסט נותח באמצעות AI"}
+            </strong>
+            <p>
+              {textAnalysisFallback
+                ? "השארנו את התיאור כרכיב שניתן לערוך. אפשר לפצל אותו לרכיבים ולהשלים כמויות ידנית."
+                : `נמצאו ${items.length} רכיבים. בדוק את הכמויות והערכים לפני השמירה.`}
+            </p>
+            {!textAnalysisFallback && query.data.model && <small>הניתוח הושלם במודל AI.</small>}
+          </div>
+        </div>
+      )}
       {!isManualEntry && !isTextEntry && query.data.result?.needsAnotherImage && (
         <div className="uncertainty-banner">
           <strong>תמונה נוספת יכולה לעזור</strong>
@@ -303,6 +355,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
             <SavedProductPicker
               initialQuery={item.nameHe}
               onChoose={(product) => chooseProduct(index, product)}
+              onChooseExternal={(candidate) => chooseExternalProduct(index, candidate)}
             />
             <div className="quantity-pair">
               <label>
@@ -426,6 +479,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
   }
 
   function chooseProduct(index: number, product: ProductSummary): void {
+    setMessage("נבחר מוצר מהמוצרים שלך והערכים חושבו לפי הכמות.");
     setItems((current) =>
       current.map((item, itemIndex) => {
         if (itemIndex !== index) return item;
@@ -445,57 +499,161 @@ export function AnalysisReviewPage(): React.JSX.Element {
       }),
     );
   }
+
+  function chooseExternalProduct(index: number, candidate: ExternalProductCandidate): void {
+    const basis: ProductBasis = {
+      energy_kcal: candidate.nutrients.energyKcal,
+      protein: candidate.nutrients.protein,
+      carbohydrate: candidate.nutrients.carbohydrate,
+      fat: candidate.nutrients.fat,
+      fiber: candidate.nutrients.fiber,
+      base_quantity: candidate.baseQuantity,
+      base_unit: candidate.baseUnit,
+    };
+    setMessage(
+      `נבחר ${candidate.nameHe} מ${candidate.sourceLabelHe}. המוצר נוסף לארוחה ואפשר לערוך את הכמות.`,
+    );
+    setItems((current) =>
+      current.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const suggestedAmount = candidate.servingWeight ?? candidate.baseQuantity;
+        const amount =
+          item.amount && Number(item.amount) > 0 ? item.amount : String(suggestedAmount);
+        return {
+          ...item,
+          nameHe: candidate.nameHe,
+          amount,
+          baseUnit: candidate.baseUnit,
+          foodId: null,
+          sourceType: "database",
+          productBasis: basis,
+          confidence: "medium",
+          ...scaledNutrients(basis, amount),
+        };
+      }),
+    );
+  }
 }
 
 function SavedProductPicker(props: {
   initialQuery: string;
   onChoose: (product: ProductSummary) => void;
+  onChooseExternal: (candidate: ExternalProductCandidate) => void;
 }): React.JSX.Element {
   const [searchText, setSearchText] = useState(props.initialQuery);
+  const normalizedQuery = searchText.trim();
+
+  useEffect(() => {
+    setSearchText(props.initialQuery);
+  }, [props.initialQuery]);
+
   const products = useQuery({
-    queryKey: ["meal-product-picker", searchText],
+    queryKey: ["meal-product-picker", normalizedQuery],
     queryFn: () =>
       apiRequest<{ results: ProductSummary[] }>(
-        `/api/v1/products/search?q=${encodeURIComponent(searchText)}`,
+        `/api/v1/products/search?q=${encodeURIComponent(normalizedQuery)}`,
       ),
-    enabled: searchText.trim().length > 1,
+    enabled: normalizedQuery.length > 1,
   });
+  const localResults = products.data?.results ?? [];
+  const shouldSearchCatalog =
+    normalizedQuery.length > 1 && products.isSuccess && localResults.length === 0;
+  const catalog = useQuery({
+    queryKey: ["meal-product-catalog", normalizedQuery],
+    queryFn: () => {
+      if (/^\d{8,14}$/u.test(normalizedQuery)) {
+        return apiRequest<{ candidates: ExternalProductCandidate[] }>(
+          `/api/v1/products/catalog/barcode/${encodeURIComponent(normalizedQuery)}`,
+        );
+      }
+      return apiRequest<{ candidates: ExternalProductCandidate[] }>(
+        `/api/v1/products/catalog/search?q=${encodeURIComponent(normalizedQuery)}`,
+      );
+    },
+    enabled: shouldSearchCatalog,
+  });
+  const catalogResults = catalog.data?.candidates ?? [];
 
   return (
     <details className="saved-product-picker">
-      <summary>בחירה מהמוצרים שלי — אופציונלי</summary>
+      <summary>חיפוש מוצר — מהמוצרים שלי או מהמאגר</summary>
       <div className="saved-product-picker__body">
         <input
           value={searchText}
           onChange={(event) => setSearchText(event.target.value)}
           placeholder="חפש שם, מותג או ברקוד"
         />
-        {searchText.trim().length > 1 && products.data?.results.length === 0 && (
-          <small>לא נמצא מוצר מתאים. אפשר להשאיר את הזיהוי הנוכחי.</small>
+        {normalizedQuery.length > 1 && products.isLoading && <small>מחפשים במוצרים שלך…</small>}
+        {localResults.length > 0 && (
+          <section className="saved-product-picker__section">
+            <strong>נמצא במוצרים שלך</strong>
+            <ul>
+              {localResults.slice(0, 8).map((product) => (
+                <li key={product.id}>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      props.onChoose(product);
+                    }}
+                  >
+                    <span>
+                      <strong>{product.canonical_name_he}</strong>
+                      <small>{product.brand ?? product.barcode ?? "מוצר שמור"}</small>
+                    </span>
+                    <span>
+                      {formatNutrient(product.energy_kcal)} קל׳ /{" "}
+                      {formatNutrient(product.base_quantity)}
+                      {product.base_unit === "ml" ? " מ״ל" : " גרם"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
-        <ul>
-          {products.data?.results.slice(0, 8).map((product) => (
-            <li key={product.id}>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  props.onChoose(product);
-                }}
-              >
-                <span>
-                  <strong>{product.canonical_name_he}</strong>
-                  <small>{product.brand ?? product.barcode ?? "מוצר שמור"}</small>
-                </span>
-                <span>
-                  {formatNutrient(product.energy_kcal)} קל׳ /{" "}
-                  {formatNutrient(product.base_quantity)}
-                  {product.base_unit === "ml" ? " מ״ל" : " גרם"}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        {shouldSearchCatalog && catalog.isLoading && (
+          <div className="catalog-search-progress" role="status">
+            <span aria-hidden="true">⌕</span>
+            <span>לא נמצא אצלך. מחפשים במאגר הישראלי והבינלאומי…</span>
+          </div>
+        )}
+        {catalogResults.length > 0 && (
+          <section className="saved-product-picker__section saved-product-picker__section--catalog">
+            <strong>תוצאות מישראל ומהעולם</strong>
+            <small>הבחירה תוסיף את המוצר ישירות לארוחה.</small>
+            <ul>
+              {catalogResults.slice(0, 8).map((candidate) => (
+                <li key={`${candidate.providerName}-${candidate.externalId}`}>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      props.onChooseExternal(candidate);
+                    }}
+                  >
+                    <span>
+                      <strong>{candidate.nameHe}</strong>
+                      <small>
+                        {candidate.brand ?? candidate.barcode ?? "מוצר מהמאגר"} ·{" "}
+                        {candidate.sourceLabelHe}
+                      </small>
+                    </span>
+                    <span>
+                      הוסף · {formatNutrient(candidate.nutrients.energyKcal)} קל׳ /{" "}
+                      {formatNutrient(candidate.baseQuantity)}
+                      {candidate.baseUnit === "ml" ? " מ״ל" : " גרם"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {shouldSearchCatalog && catalog.isSuccess && catalogResults.length === 0 && (
+          <small>לא נמצאה התאמה גם במאגרים. אפשר להקליד את שם המוצר והערכים ידנית.</small>
+        )}
+        {normalizedQuery.length <= 1 && <small>הקלד לפחות שתי אותיות כדי להתחיל חיפוש.</small>}
       </div>
     </details>
   );

@@ -94,7 +94,8 @@ export function CapturePage(): React.JSX.Element {
         method: "POST",
         body: JSON.stringify({ clientMutationId: crypto.randomUUID(), text }),
       });
-      void navigate(`/analysis/${job.jobId}`);
+      setStatus("הבקשה התקבלה. עוברים למסך הניתוח…");
+      void navigate(`/analysis/${job.jobId}?source=text`);
     } catch (error) {
       setStatus(
         error instanceof ClientApiError
@@ -118,7 +119,7 @@ export function CapturePage(): React.JSX.Element {
         method: "POST",
         body: JSON.stringify({ clientMutationId: crypto.randomUUID() }),
       });
-      void navigate(`/analysis/${job.jobId}`);
+      void navigate(`/analysis/${job.jobId}?source=manual`);
     } catch (error) {
       setStatus(
         error instanceof ClientApiError ? error.messageHe : "לא הצלחנו לפתוח את הטופס הידני.",

@@ -59,7 +59,7 @@ export async function analyzeMealText(
 ): Promise<AiRouteResult> {
   if (env.AI_ENABLED !== "true") {
     return {
-      result: disabledTextResult("ניתוח טקסט באמצעות AI אינו זמין כרגע."),
+      result: fallbackTextResult(description, "ניתוח טקסט באמצעות AI אינו זמין כרגע."),
       model: null,
       route: "disabled",
     };
@@ -68,65 +68,99 @@ export async function analyzeMealText(
   const aiValue: unknown = env.AI;
   if (!isGenericAiBinding(aiValue)) {
     return {
-      result: disabledTextResult("ניתוח טקסט באמצעות AI אינו זמין כרגע."),
+      result: fallbackTextResult(description, "ניתוח טקסט באמצעות AI אינו זמין כרגע."),
       model: null,
       route: "disabled",
     };
   }
 
   const strongModel = env.AI_STRONG_MODEL;
-  const raw = await aiValue.run(strongModel, createTextPayload(description));
-  const parsed = parseModelResponse(raw);
-  if (parsed) {
+  const strongParsed = await tryAnalyzeTextWithModel(aiValue, strongModel, description, true);
+  if (strongParsed) {
     return {
-      result: {
-        ...parsed,
-        analysisVersion: "meal-text-v1",
-        needsAnotherImage: false,
-      },
+      result: normalizeTextResult(strongParsed),
       model: strongModel,
       route: "fast_then_strong",
     };
   }
 
+  const fastModel = env.AI_FAST_MODEL;
+  if (fastModel !== strongModel) {
+    const fastParsed = await tryAnalyzeTextWithModel(aiValue, fastModel, description, false);
+    if (fastParsed) {
+      return {
+        result: normalizeTextResult(fastParsed),
+        model: fastModel,
+        route: "fast",
+      };
+    }
+  }
+
   return {
-    result: disabledTextResult("לא הצלחנו להפוך את התיאור לרכיבים. אפשר להשלים את הארוחה ידנית."),
-    model: strongModel,
-    route: "fast_then_strong",
+    result: fallbackTextResult(
+      description,
+      "ה־AI לא החזיר מבנה תקין. התיאור נשמר וניתן לפצל אותו ידנית.",
+    ),
+    model: null,
+    route: "disabled",
   };
 }
 
-function createTextPayload(description: string): Record<string, unknown> {
-  const basePayload = createVisionPayload([], true);
+async function tryAnalyzeTextWithModel(
+  aiValue: GenericAiBinding,
+  model: string,
+  description: string,
+  strong: boolean,
+): Promise<MealAnalysisResult | null> {
+  try {
+    const raw = await aiValue.run(model, createTextPayload(description, strong));
+    return parseModelResponse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeTextResult(result: MealAnalysisResult): MealAnalysisResult {
+  const normalized = {
+    ...result,
+    analysisVersion: "meal-text-v2",
+    needsAnotherImage: false,
+  };
+  delete normalized.anotherImageReasonHe;
+  return normalized;
+}
+
+function createTextPayload(description: string, strong: boolean): Record<string, unknown> {
+  const basePayload = createVisionPayload([], strong);
+  Reflect.deleteProperty(basePayload, "max_tokens");
   return {
     ...basePayload,
     messages: [
       {
         role: "system",
         content:
-          "You are a cautious nutrition meal-log parser. Convert only the food the user explicitly says they ate into structured meal components. Return Hebrew food names, use the required JSON schema, and never diagnose.",
+          "You are a cautious nutrition meal-log parser. Convert only food explicitly stated by the user into structured meal components. Return Hebrew food names and JSON matching the requested schema. Never diagnose.",
       },
       {
         role: "user",
         content: [
-          {
-            type: "text",
-            text: [
-              'הפוך את תיאור הארוחה הבא לרכיבים נפרדים: "' + description + '".',
-              'הגדר analysisVersion כ-"meal-text-v1" ואת needsAnotherImage כ-false.',
-              "פצל מאכלים שהמשתמש ציין במפורש. אל תפרק מנה מוכנה למרכיבים פנימיים שלא צוינו.",
-              "שמור כמויות ויחידות שנכתבו. המר לגרמים רק כאשר ההמרה סבירה וברורה.",
-              "כאשר כמות חסרה, השאר estimatedGrams כ-null וסמן quantityConfidence כ-low.",
-              "הערך טווח קלוריות שמרני. אל תנחש שמן, רוטב, תוספת, מותג או שיטת בישול שלא צוינו.",
-              "הוסף clarificationQuestions קצרות רק לפרטים שחסרים ומשפיעים משמעותית על ההערכה.",
-              "החזר JSON בלבד לפי הסכמה.",
-            ].join(" "),
-          },
-        ],
+          'הפוך את תיאור הארוחה הבא לרכיבים נפרדים: "' + description + '".',
+          'הגדר analysisVersion כ-"meal-text-v2" ואת needsAnotherImage כ-false.',
+          "פצל רק מאכלים שהמשתמש ציין במפורש. אל תפרק מנה מוכנה למרכיבים פנימיים שלא צוינו.",
+          "שמור כמויות ויחידות שנכתבו. המר לגרמים רק כאשר ההמרה סבירה וברורה.",
+          "כאשר כמות חסרה, החזר estimatedQuantity ו-estimatedGrams כ-null וסמן quantityConfidence כ-low.",
+          "הערך טווח קלוריות שמרני. אל תנחש שמן, רוטב, תוספת, מותג או שיטת בישול שלא צוינו.",
+          "החזר JSON בלבד לפי הסכמה.",
+        ].join(" "),
       },
     ],
-    max_tokens: 3_200,
-    temperature: 0.05,
+    ...(strong
+      ? {
+          max_completion_tokens: 2_400,
+          chat_template_kwargs: { thinking: false },
+        }
+      : { max_tokens: 1_800 }),
+    temperature: 0,
   };
 }
 
@@ -169,82 +203,78 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
     response_format: {
       type: "json_schema",
       json_schema: {
-        name: "meal_analysis",
-        strict: true,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            analysisVersion: { type: "string" },
-            detectedItems: {
-              type: "array",
-              minItems: 1,
-              maxItems: 30,
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  temporaryId: { type: "string" },
-                  candidateNameHe: { type: "string" },
-                  candidateNameEn: { type: "string" },
-                  alternativeCandidates: {
-                    type: "array",
-                    items: { type: "string" },
-                  },
-                  estimatedQuantity: { type: ["number", "null"] },
-                  estimatedUnit: { type: ["string", "null"] },
-                  estimatedGrams: { type: ["number", "null"] },
-                  foodIdentityConfidence: {
-                    type: "string",
-                    enum: ["high", "medium", "low"],
-                  },
-                  quantityConfidence: {
-                    type: "string",
-                    enum: ["high", "medium", "low"],
-                  },
-                  nutritionConfidence: {
-                    type: "string",
-                    enum: ["high", "medium", "low"],
-                  },
-                  plausibleCaloriesMin: { type: ["number", "null"] },
-                  plausibleCaloriesMax: { type: ["number", "null"] },
-                  notes: { type: "array", items: { type: "string" } },
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          analysisVersion: { type: "string" },
+          detectedItems: {
+            type: "array",
+            minItems: 1,
+            maxItems: 30,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                temporaryId: { type: "string" },
+                candidateNameHe: { type: "string" },
+                candidateNameEn: { type: "string" },
+                alternativeCandidates: {
+                  type: "array",
+                  items: { type: "string" },
                 },
-                required: [
-                  "temporaryId",
-                  "candidateNameHe",
-                  "estimatedQuantity",
-                  "estimatedUnit",
-                  "estimatedGrams",
-                  "foodIdentityConfidence",
-                  "quantityConfidence",
-                  "nutritionConfidence",
-                  "plausibleCaloriesMin",
-                  "plausibleCaloriesMax",
-                ],
-              },
-            },
-            overallConfidence: {
-              type: "string",
-              enum: ["high", "medium", "low"],
-            },
-            clarificationQuestions: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  questionId: { type: "string" },
-                  questionHe: { type: "string" },
-                  answerOptions: { type: "array", items: { type: "string" } },
+                estimatedQuantity: { type: ["number", "null"] },
+                estimatedUnit: { type: ["string", "null"] },
+                estimatedGrams: { type: ["number", "null"] },
+                foodIdentityConfidence: {
+                  type: "string",
+                  enum: ["high", "medium", "low"],
                 },
-                required: ["questionId", "questionHe"],
+                quantityConfidence: {
+                  type: "string",
+                  enum: ["high", "medium", "low"],
+                },
+                nutritionConfidence: {
+                  type: "string",
+                  enum: ["high", "medium", "low"],
+                },
+                plausibleCaloriesMin: { type: ["number", "null"] },
+                plausibleCaloriesMax: { type: ["number", "null"] },
+                notes: { type: "array", items: { type: "string" } },
               },
+              required: [
+                "temporaryId",
+                "candidateNameHe",
+                "estimatedQuantity",
+                "estimatedUnit",
+                "estimatedGrams",
+                "foodIdentityConfidence",
+                "quantityConfidence",
+                "nutritionConfidence",
+                "plausibleCaloriesMin",
+                "plausibleCaloriesMax",
+              ],
             },
-            needsAnotherImage: { type: "boolean" },
-            anotherImageReasonHe: { type: "string" },
           },
-          required: ["analysisVersion", "detectedItems", "overallConfidence", "needsAnotherImage"],
+          overallConfidence: {
+            type: "string",
+            enum: ["high", "medium", "low"],
+          },
+          clarificationQuestions: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                questionId: { type: "string" },
+                questionHe: { type: "string" },
+                answerOptions: { type: "array", items: { type: "string" } },
+              },
+              required: ["questionId", "questionHe"],
+            },
+          },
+          needsAnotherImage: { type: "boolean" },
+          anotherImageReasonHe: { type: "string" },
         },
+        required: ["analysisVersion", "detectedItems", "overallConfidence", "needsAnotherImage"],
       },
     },
   };
@@ -278,6 +308,8 @@ function readResponseField(raw: unknown): unknown {
     if (typeof first === "object" && first !== null) {
       const message = readUnknownField(first, "message");
       if (typeof message === "object" && message !== null) {
+        const parsed = readUnknownField(message, "parsed");
+        if (parsed !== undefined && parsed !== null) return parsed;
         const content = readUnknownField(message, "content");
         if (typeof content === "string") return stripCodeFence(content);
         if (isUnknownArray(content)) {
@@ -350,10 +382,32 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-function disabledTextResult(note: string): MealAnalysisResult {
+function fallbackTextResult(description: string, note: string): MealAnalysisResult {
+  const candidateNameHe = description.trim().slice(0, 160) || "רכיב להזנה ידנית";
   return {
-    ...disabledResult(note),
-    analysisVersion: "meal-text-v1",
+    analysisVersion: "meal-text-fallback-v2",
+    detectedItems: [
+      {
+        temporaryId: crypto.randomUUID(),
+        candidateNameHe,
+        estimatedQuantity: null,
+        estimatedUnit: null,
+        estimatedGrams: null,
+        foodIdentityConfidence: "medium",
+        quantityConfidence: "low",
+        nutritionConfidence: "low",
+        plausibleCaloriesMin: null,
+        plausibleCaloriesMax: null,
+        notes: [note],
+      },
+    ],
+    overallConfidence: "low",
+    clarificationQuestions: [
+      {
+        questionId: "manual-split",
+        questionHe: "האם תרצה לפצל את התיאור למספר רכיבים?",
+      },
+    ],
     needsAnotherImage: false,
   };
 }
