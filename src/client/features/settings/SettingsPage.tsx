@@ -20,10 +20,49 @@ type HouseholdResponse = {
   members: Array<{ id: string; email: string; role: string }>;
 };
 
+type GarminStatusResponse = {
+  enabled: boolean;
+  approvedProviderConfigured: boolean;
+  messageHe: string;
+  shortcutBridge: {
+    configured: boolean;
+    status: string;
+    lastSuccessfulSyncAt: string | null;
+    lastErrorCode: string | null;
+    importUrl: string;
+    latestDaily: {
+      localDate: string;
+      steps: number | null;
+      activeEnergyKcal: number | null;
+      restingEnergyKcal: number | null;
+      walkingRunningDistanceKm: number | null;
+      restingHeartRateBpm: number | null;
+      sleepMinutes: number | null;
+      weightKg: number | null;
+      bodyFatPercentage: number | null;
+      importedAt: string;
+    } | null;
+    recentWorkouts: Array<{
+      workoutType: string;
+      startAt: string;
+      durationMinutes: number;
+      activeEnergyKcal: number | null;
+      distanceKm: number | null;
+    }>;
+  };
+};
+
+type ShortcutTokenResponse = {
+  token: string;
+  importUrl: string;
+  messageHe: string;
+};
+
 export function SettingsPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [shortcutToken, setShortcutToken] = useState<ShortcutTokenResponse | null>(null);
   const profile = useQuery({
     queryKey: ["profile"],
     queryFn: () =>
@@ -37,7 +76,35 @@ export function SettingsPage(): React.JSX.Element {
   });
   const garmin = useQuery({
     queryKey: ["garmin"],
-    queryFn: () => apiRequest<{ enabled: boolean; messageHe: string }>("/api/v1/garmin/status"),
+    queryFn: () => apiRequest<GarminStatusResponse>("/api/v1/garmin/status"),
+  });
+  const createShortcutToken = useMutation({
+    mutationFn: () =>
+      apiRequest<ShortcutTokenResponse>("/api/v1/garmin/shortcut/token", {
+        method: "POST",
+      }),
+    onSuccess: async (result) => {
+      setShortcutToken(result);
+      setMessage("מפתח החיבור נוצר. הוא מוצג פעם אחת בלבד.");
+      await queryClient.invalidateQueries({ queryKey: ["garmin"] });
+    },
+    onError: (error) =>
+      setMessage(
+        error instanceof ClientApiError ? error.messageHe : "לא הצלחנו ליצור מפתח ל־Shortcut",
+      ),
+  });
+  const disconnectShortcut = useMutation({
+    mutationFn: () =>
+      apiRequest("/api/v1/garmin/shortcut/token", {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      setShortcutToken(null);
+      setMessage("הגשר נותק והמפתח הקודם בוטל");
+      await queryClient.invalidateQueries({ queryKey: ["garmin"] });
+    },
+    onError: (error) =>
+      setMessage(error instanceof ClientApiError ? error.messageHe : "לא הצלחנו לנתק את הגשר"),
   });
 
   const saveProfile = useMutation({
@@ -269,12 +336,146 @@ export function SettingsPage(): React.JSX.Element {
         )}
       </section>
 
-      <section className="settings-section">
-        <h2>Garmin</h2>
+      <section className="settings-section garmin-settings">
+        <div className="garmin-settings__heading">
+          <h2>Garmin ו־Apple Health</h2>
+          <span
+            className={`garmin-status-pill${
+              garmin.data?.shortcutBridge.status === "active" ? " is-active" : ""
+            }`}
+          >
+            {garmin.data?.shortcutBridge.status === "active"
+              ? "מחובר"
+              : garmin.data?.shortcutBridge.configured
+                ? "ממתין לסנכרון"
+                : "לא מחובר"}
+          </span>
+        </div>
         <p>{garmin.data?.messageHe ?? "בודקים את מצב החיבור…"}</p>
-        <button className="secondary-action" disabled={!garmin.data?.enabled}>
-          נסה לסנכרן עכשיו
-        </button>
+
+        <div className="garmin-bridge-card">
+          <div className="garmin-bridge-card__title">
+            <span aria-hidden="true">♥</span>
+            <div>
+              <strong>גשר חינמי דרך Apple Health</strong>
+              <small>Garmin Connect → Apple Health → Shortcut → רגע טוב</small>
+            </div>
+          </div>
+
+          {!garmin.data?.shortcutBridge.configured && (
+            <button
+              className="primary-action"
+              type="button"
+              disabled={createShortcutToken.isPending}
+              onClick={() => createShortcutToken.mutate()}
+            >
+              {createShortcutToken.isPending ? "יוצרים מפתח…" : "יצירת מפתח אישי ל־Shortcut"}
+            </button>
+          )}
+
+          {garmin.data?.shortcutBridge.configured && !shortcutToken && (
+            <div className="shortcut-actions">
+              <button
+                type="button"
+                onClick={() => createShortcutToken.mutate()}
+                disabled={createShortcutToken.isPending}
+              >
+                החלפת המפתח
+              </button>
+              <button
+                className="danger-action"
+                type="button"
+                onClick={() => disconnectShortcut.mutate()}
+                disabled={disconnectShortcut.isPending}
+              >
+                {disconnectShortcut.isPending ? "מנתקים…" : "ניתוק הגשר"}
+              </button>
+            </div>
+          )}
+
+          {shortcutToken && (
+            <div className="shortcut-secret" role="status">
+              <strong>שמור עכשיו — המפתח לא יוצג שוב</strong>
+              <small>{shortcutToken.messageHe}</small>
+              <code>{shortcutToken.token}</code>
+              <div className="shortcut-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void copyToClipboard(shortcutToken.token)
+                      .then(() => setMessage("המפתח הועתק"))
+                      .catch(() => setMessage("לא הצלחנו להעתיק. לחץ לחיצה ארוכה על המפתח."));
+                  }}
+                >
+                  העתקת המפתח
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void copyToClipboard(shortcutToken.importUrl)
+                      .then(() => setMessage("כתובת הייבוא הועתקה"))
+                      .catch(() => setMessage("לא הצלחנו להעתיק את הכתובת"));
+                  }}
+                >
+                  העתקת כתובת הייבוא
+                </button>
+              </div>
+            </div>
+          )}
+
+          {garmin.data?.shortcutBridge.latestDaily && (
+            <>
+              <strong>
+                סנכרון אחרון · {formatDateTime(garmin.data.shortcutBridge.lastSuccessfulSyncAt)}
+              </strong>
+              <div className="health-summary-grid">
+                <div>
+                  <strong>{formatMetric(garmin.data.shortcutBridge.latestDaily.steps)}</strong>
+                  <small>צעדים</small>
+                </div>
+                <div>
+                  <strong>
+                    {formatMetric(garmin.data.shortcutBridge.latestDaily.activeEnergyKcal)}
+                  </strong>
+                  <small>קלוריות פעילות</small>
+                </div>
+                <div>
+                  <strong>
+                    {formatMetric(garmin.data.shortcutBridge.latestDaily.walkingRunningDistanceKm)}{" "}
+                    ק״מ
+                  </strong>
+                  <small>הליכה וריצה</small>
+                </div>
+                <div>
+                  <strong>
+                    {formatSleep(garmin.data.shortcutBridge.latestDaily.sleepMinutes)}
+                  </strong>
+                  <small>שינה</small>
+                </div>
+              </div>
+            </>
+          )}
+
+          <details className="shortcut-setup">
+            <summary>הוראות הקמה באייפון</summary>
+            <ol>
+              <li>סנכרן את השעון כאשר Garmin Connect פתוח.</li>
+              <li>אפשר ל־Garmin Connect לכתוב נתונים ל־Apple Health.</li>
+              <li>צור Shortcut שקורא את נתוני Health של היום.</li>
+              <li>שלח Dictionary כ־JSON לכתובת הייבוא בשיטת POST.</li>
+              <li>הוסף Header בשם Authorization ובערך Bearer ולאחריו המפתח האישי.</li>
+            </ol>
+          </details>
+        </div>
+
+        <details>
+          <summary>החיבור הרשמי של Garmin</summary>
+          <p>
+            {garmin.data?.approvedProviderConfigured
+              ? "פרטי Garmin קיימים. החיבור הרשמי יופעל לאחר השלמת מסלול ההרשאה וה־Data Feed."
+              : "החיבור הרשמי נשאר בהמתנה למפתחות ולאישור Garmin."}
+          </p>
+        </details>
       </section>
       <section className="settings-section">
         <h2>התקנה באייפון</h2>
@@ -306,6 +507,31 @@ export function SettingsPage(): React.JSX.Element {
       </section>
     </div>
   );
+}
+
+async function copyToClipboard(value: string): Promise<void> {
+  if (!navigator.clipboard) throw new Error("Clipboard API unavailable");
+  await navigator.clipboard.writeText(value);
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) return "עדיין לא בוצע";
+  return new Intl.DateTimeFormat("he-IL", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function formatMetric(value: number | null): string {
+  if (value === null) return "—";
+  return new Intl.NumberFormat("he-IL", { maximumFractionDigits: 1 }).format(value);
+}
+
+function formatSleep(value: number | null): string {
+  if (value === null) return "—";
+  const hours = Math.floor(value / 60);
+  const minutes = Math.round(value % 60);
+  return `${hours}:${String(minutes).padStart(2, "0")}`;
 }
 
 function DeleteAccount({ onDeleted }: { onDeleted: () => void }): React.JSX.Element {
