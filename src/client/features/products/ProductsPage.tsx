@@ -639,7 +639,9 @@ export function ProductsPage(): React.JSX.Element {
           <div className="product-form__heading">
             <div>
               <p className="eyebrow">אישור לפני שמירה</p>
-              <h2>{draft.sourceType === "label" ? "שם המוצר והערכים שנסרקו" : "תיוג המוצר והערכים"}</h2>
+              <h2>
+                {draft.sourceType === "label" ? "שם המוצר והערכים שנסרקו" : "תיוג המוצר והערכים"}
+              </h2>
             </div>
             <button type="button" onClick={() => setShowForm(false)} aria-label="סגירת הטופס">
               ×
