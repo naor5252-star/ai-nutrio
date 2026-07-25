@@ -92,7 +92,7 @@ export async function scanProductLabel(options: {
         {
           role: "system",
           content:
-            "You are a meticulous nutrition-table OCR specialist. Return JSON only. First understand table structure: identify row labels, column headers, and map each value to the correct row and column. Read Hebrew, Arabic and English. Preserve the printed basis. Never infer a number that is not visible. Do not identify the product, brand, or barcode. Partial extraction is valid and preferred over failure.",
+            "You are a meticulous nutrition-table OCR specialist. Return the requested JSON immediately, with no explanation, no analysis prose, and no chain-of-thought. Identify row labels and column headers internally, map each value to the correct row and column, and emit only the schema response. Read Hebrew, Arabic and English. Preserve the printed basis. Never infer a number that is not visible. Do not identify the product, brand, or barcode. Partial extraction is valid and preferred over failure.",
         },
         {
           role: "user",
@@ -123,8 +123,11 @@ export async function scanProductLabel(options: {
           ],
         },
       ],
-      max_tokens: 1_800,
-      temperature: 0.05,
+      chat_template_kwargs: {
+        thinking: false,
+      },
+      max_completion_tokens: 1_200,
+      temperature: 0,
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -193,7 +196,13 @@ export async function scanProductLabel(options: {
 
     stage = "extract";
     candidate = extractCandidate(raw);
-    if (candidate === null) throw new Error("AI label scan returned invalid JSON");
+    if (candidate === null) {
+      const finishReason = extractFinishReason(raw);
+      if (finishReason === "length") {
+        throw new Error("AI output ended at the token limit before returning JSON");
+      }
+      throw new Error("AI label scan returned invalid JSON");
+    }
 
     stage = "schema";
     const parsed = productLabelResultSchema.safeParse(candidate);
@@ -279,6 +288,15 @@ function normalizeLabelResult(result: ProductLabelResult): ProductLabelResult {
 
 function isAiBinding(value: unknown): value is GenericAiBinding {
   return isRecord(value) && typeof value.run === "function";
+}
+
+function extractFinishReason(raw: unknown): string | null {
+  if (!isRecord(raw)) return null;
+  const choices = raw.choices;
+  if (!isUnknownArray(choices) || choices.length === 0) return null;
+  const first = choices[0];
+  if (!isRecord(first)) return null;
+  return typeof first.finish_reason === "string" ? first.finish_reason : null;
 }
 
 function extractCandidate(raw: unknown): unknown {
