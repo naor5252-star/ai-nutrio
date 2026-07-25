@@ -341,19 +341,11 @@ export function ProductsPage(): React.JSX.Element {
     try {
       const scan = await scanWithAi(file);
       applyLabelScan(scan);
-      const candidates = await lookupCatalog({
-        barcode: scan.barcode,
-        nameHe: scan.suggestedNameHe,
-        brand: scan.brand,
-      });
-      setCatalogCandidates(candidates);
+      setCatalogCandidates([]);
+      setCatalogSearchCompleted(false);
       const confidenceText =
-        scan.confidence === "high" ? "הקריאה נראית ברורה" : "כדאי לבדוק את הערכים מול התווית";
-      setMessage(
-        candidates.length > 0
-          ? `${confidenceText}. נמצאו גם ${candidates.length} התאמות ממאגרים לבחירה.`
-          : `${confidenceText}. לא נמצאה התאמה במאגרים; בדוק את הערכים לפני השמירה.`,
-      );
+        scan.confidence === "high" ? "הערכים נקראו מהטבלה" : "כדאי לבדוק את הערכים מול הטבלה";
+      setMessage(`${confidenceText}. הזן ידנית את שם המוצר ואז בדוק ושמור.`);
     } catch (error) {
       setShowForm(true);
       setMessage(
@@ -377,8 +369,8 @@ export function ProductsPage(): React.JSX.Element {
         <p className="eyebrow">ספריית מוצרים</p>
         <h1>סרוק פעם אחת, השתמש בכל ארוחה.</h1>
         <p>
-          אפשר לצלם ברקוד או תווית, או לבחור תמונה מהגלריה, ולהשוות למאגר ישראלי ולמאגר בינלאומי
-          לפני השמירה.
+          סריקת ברקוד יכולה לחפש מוצר במאגרים. צילום טבלת ערכים הוא מסלול נפרד: הוא קורא רק את
+          הערכים התזונתיים, ואת שם המוצר מזינים ידנית.
         </p>
       </section>
 
@@ -412,8 +404,8 @@ export function ProductsPage(): React.JSX.Element {
             disabled={scanning}
           >
             <span aria-hidden="true">▤</span>
-            <strong>צילום ערכים</strong>
-            <small>צילום חדש של טבלת הערכים</small>
+            <strong>סריקת טבלת ערכים</strong>
+            <small>קריאת הערכים בלבד, ללא חיפוש מוצר</small>
           </button>
           <button
             className="product-scan-option__gallery"
@@ -422,7 +414,7 @@ export function ProductsPage(): React.JSX.Element {
             disabled={scanning}
           >
             <span aria-hidden="true">▧</span>
-            בחירת תווית מהגלריה
+            בחירת טבלת ערכים מהגלריה
           </button>
         </div>
       </div>
@@ -647,7 +639,7 @@ export function ProductsPage(): React.JSX.Element {
           <div className="product-form__heading">
             <div>
               <p className="eyebrow">אישור לפני שמירה</p>
-              <h2>תיוג המוצר והערכים</h2>
+              <h2>{draft.sourceType === "label" ? "שם המוצר והערכים שנסרקו" : "תיוג המוצר והערכים"}</h2>
             </div>
             <button type="button" onClick={() => setShowForm(false)} aria-label="סגירת הטופס">
               ×
@@ -661,7 +653,11 @@ export function ProductsPage(): React.JSX.Element {
               placeholder="לדוגמה: יוגורט PRO וניל"
               required
             />
-            <small>זה השם שיופיע אחר כך בבחירת מוצרים בארוחה.</small>
+            <small>
+              {draft.sourceType === "label"
+                ? "השם אינו נקרא מהצילום. הזן אותו ידנית."
+                : "זה השם שיופיע אחר כך בבחירת מוצרים בארוחה."}
+            </small>
           </label>
           <div className="form-pair">
             <label>
@@ -790,9 +786,9 @@ export function ProductsPage(): React.JSX.Element {
 
   function applyLabelScan(scan: LabelScan): void {
     setDraft({
-      nameHe: scan.suggestedNameHe ?? "",
-      brand: scan.brand ?? "",
-      barcode: scan.barcode ?? "",
+      nameHe: "",
+      brand: "",
+      barcode: "",
       baseQuantity: String(scan.baseQuantity),
       baseUnit: scan.baseUnit,
       servingDescriptionHe: scan.servingDescriptionHe ?? "",

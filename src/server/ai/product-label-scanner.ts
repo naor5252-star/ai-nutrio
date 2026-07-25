@@ -49,7 +49,7 @@ export async function scanProductLabel(options: {
         {
           role: "system",
           content:
-            "You are a meticulous packaged-food OCR and nutrition-label specialist. Return JSON only. Read Hebrew and English text, preserve the printed basis, and never infer a number that is not visible.",
+            "You are a meticulous nutrition-table OCR specialist. Return JSON only. Read Hebrew and English nutrition tables, preserve the printed basis, never infer a number that is not visible, and do not identify the product, brand, or barcode.",
         },
         {
           role: "user",
@@ -57,8 +57,8 @@ export async function scanProductLabel(options: {
             {
               type: "text",
               text: [
-                "קרא בקפדנות את חזית המוצר, הברקוד וטבלת הסימון התזונתי הנראים בתמונה.",
-                "חלץ שם מוצר מוצע בעברית, מותג וברקוד רק כאשר הספרות נראות בבירור.",
+                "קרא רק את טבלת הסימון התזונתי הנראית בתמונה.",
+                "אל תנסה לזהות מוצר, מותג או ברקוד. החזר תמיד suggestedNameHe=null, brand=null, barcode=null.",
                 "הבחן בין ערכים ל-100 גרם או 100 מ״ל לבין ערכים למנה. העדף את עמודת 100 גרם או 100 מ״ל כאשר היא קיימת.",
                 "כאשר מופיעים רק ערכים למנה, שמור את תיאור ומשקל המנה ואל תנרמל ל-100 אלא אם החישוב חד-משמעי.",
                 "אל תבלבל בין קילו-ג׳אול לקלוריות, בין נתרן לאנרגיה, או בין פחמימות לסוכרים.",
