@@ -244,7 +244,7 @@ export async function scanProductLabel(options: {
         errorMessage: errorMessage.slice(0, 500),
         model: options.env.AI_STRONG_MODEL,
         stage,
-        schemaIssues: schemaIssues.slice(0, 10),
+        schemaIssues: schemaIssues.slice(0, 10).join(" | "),
       },
     });
     throw new ProductLabelScanError(errorMessage, debug);
