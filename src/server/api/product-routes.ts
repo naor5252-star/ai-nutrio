@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context";
 import { requireAuth, requireCsrf } from "../auth/session";
-import { scanProductLabel } from "../ai/product-label-scanner";
+import { ProductLabelScanError, scanProductLabel } from "../ai/product-label-scanner";
 import { findOpenFoodFactsByBarcode, searchOpenFoodFacts } from "../integrations/open-food-facts";
 import { requireHouseholdId } from "../domain/authorization";
 import { nowIso } from "../repositories/db";
@@ -188,14 +188,21 @@ productRoutes.post("/label/scan", requireCsrf, async (context) => {
     });
   }
   try {
-    const scan = await scanProductLabel({
+    const scanWithDebug = await scanProductLabel({
       env: context.env,
       contentType,
       bytes,
       correlationId: context.get("correlationId"),
     });
-    return context.json({ scan });
-  } catch {
+    const { debug, ...scan } = scanWithDebug;
+    return context.json({
+      scan,
+      ...(context.req.query("debug") === "1" ? { debug } : {}),
+    });
+  } catch (error) {
+    if (context.req.query("debug") === "1" && error instanceof ProductLabelScanError) {
+      return context.json({ scan: null, debug: error.debug });
+    }
     throw new AppError({
       status: 502,
       code: "LABEL_SCAN_FAILED",

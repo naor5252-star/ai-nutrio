@@ -45,6 +45,21 @@ type LabelScan = {
   warningsHe: string[];
 };
 
+type LabelScanDebug = {
+  stage: "ai" | "extract" | "schema" | "validate" | "complete";
+  model: string;
+  rawPreview: string | null;
+  candidate: unknown;
+  schemaIssues: string[];
+  normalized: LabelScan | null;
+  error: string | null;
+};
+
+type LabelScanDebugResponse = {
+  scan: LabelScan | null;
+  debug: LabelScanDebug;
+};
+
 type ExternalProductCandidate = {
   externalId: string;
   barcode: string | null;
@@ -121,6 +136,7 @@ export function ProductsPage(): React.JSX.Element {
   const [catalogCandidates, setCatalogCandidates] = useState<ExternalProductCandidate[]>([]);
   const [catalogSearchCompleted, setCatalogSearchCompleted] = useState(false);
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT);
+  const [labelDebug, setLabelDebug] = useState<LabelScanDebug | null>(null);
   const barcodeCameraInput = useRef<HTMLInputElement>(null);
   const barcodeGalleryInput = useRef<HTMLInputElement>(null);
   const labelCameraInput = useRef<HTMLInputElement>(null);
@@ -202,6 +218,15 @@ export function ProductsPage(): React.JSX.Element {
       headers: { "content-type": compressed.type || "image/jpeg" },
       body: compressed,
     }).then((response) => response.scan);
+  };
+
+  const scanNutritionLabelWithDebug = async (file: File): Promise<LabelScanDebugResponse> => {
+    const compressed = await compressImage(file);
+    return apiRequest<LabelScanDebugResponse>("/api/v1/products/label/scan?debug=1", {
+      method: "POST",
+      headers: { "content-type": compressed.type || "image/jpeg" },
+      body: compressed,
+    });
   };
 
   const lookupCatalog = async (options: {
@@ -345,9 +370,19 @@ export function ProductsPage(): React.JSX.Element {
   const scanLabel = async (file: File | undefined): Promise<void> => {
     if (!file) return;
     setScanning(true);
+    setLabelDebug(null);
     setMessage("קוראים את התווית התזונתית…");
     try {
-      const scan = await scanWithAi(file);
+      const response = await scanNutritionLabelWithDebug(file);
+      setLabelDebug(response.debug);
+      if (!response.scan) {
+        setShowForm(true);
+        setMessage(
+          `הסריקה נכשלה בשלב ${response.debug.stage}. פתח את „אבחון הסריקה” ושלח לי את התוצאה.`,
+        );
+        return;
+      }
+      const scan = response.scan;
       applyLabelScan(scan);
       setCatalogCandidates([]);
       setCatalogSearchCompleted(false);
@@ -476,6 +511,47 @@ export function ProductsPage(): React.JSX.Element {
         <p className="status-message" role="status">
           {message}
         </p>
+      )}
+
+      {labelDebug && (
+        <details className="label-debug-panel">
+          <summary>אבחון הסריקה</summary>
+          <div className="label-debug-panel__summary">
+            <span>
+              שלב: <b>{labelDebug.stage}</b>
+            </span>
+            <span>
+              מודל: <b>{labelDebug.model}</b>
+            </span>
+            {labelDebug.error && (
+              <span>
+                שגיאה: <b>{labelDebug.error}</b>
+              </span>
+            )}
+          </div>
+          {labelDebug.schemaIssues.length > 0 && (
+            <div>
+              <strong>בעיות Schema</strong>
+              <ul>
+                {labelDebug.schemaIssues.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div>
+            <strong>JSON שחולץ לפני validation</strong>
+            <pre>{JSON.stringify(labelDebug.candidate, null, 2)}</pre>
+          </div>
+          <div>
+            <strong>תוצאה אחרי validation</strong>
+            <pre>{JSON.stringify(labelDebug.normalized, null, 2)}</pre>
+          </div>
+          <div>
+            <strong>Raw AI response</strong>
+            <pre>{labelDebug.rawPreview ?? "לא התקבל פלט מהמודל"}</pre>
+          </div>
+        </details>
       )}
 
       {catalogLoading && (

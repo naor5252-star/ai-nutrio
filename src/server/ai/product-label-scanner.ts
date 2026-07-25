@@ -38,6 +38,26 @@ const productLabelResultSchema = z.object({
 
 export type ProductLabelResult = z.infer<typeof productLabelResultSchema>;
 
+export type ProductLabelDebug = {
+  stage: "ai" | "extract" | "schema" | "validate" | "complete";
+  model: string;
+  rawPreview: string | null;
+  candidate: unknown;
+  schemaIssues: string[];
+  normalized: ProductLabelResult | null;
+  error: string | null;
+};
+
+export class ProductLabelScanError extends Error {
+  readonly debug: ProductLabelDebug;
+
+  constructor(message: string, debug: ProductLabelDebug) {
+    super(message);
+    this.name = "ProductLabelScanError";
+    this.debug = debug;
+  }
+}
+
 type GenericAiBinding = {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 };
@@ -47,13 +67,27 @@ export async function scanProductLabel(options: {
   contentType: string;
   bytes: ArrayBuffer;
   correlationId: string;
-}): Promise<ProductLabelResult> {
+}): Promise<ProductLabelResult & { debug: ProductLabelDebug }> {
+  let stage: ProductLabelDebug["stage"] = "ai";
+  let raw: unknown = null;
+  let candidate: unknown = null;
+  let schemaIssues: string[] = [];
+  let normalized: ProductLabelResult | null = null;
+
   if (options.env.AI_ENABLED !== "true" || !isAiBinding(options.env.AI)) {
-    throw new Error("Workers AI is not available");
+    throw new ProductLabelScanError("Workers AI is not available", {
+      stage,
+      model: options.env.AI_STRONG_MODEL,
+      rawPreview: null,
+      candidate: null,
+      schemaIssues: [],
+      normalized: null,
+      error: "Workers AI is not available",
+    });
   }
 
   try {
-    const raw = await options.env.AI.run(options.env.AI_STRONG_MODEL, {
+    raw = await options.env.AI.run(options.env.AI_STRONG_MODEL, {
       messages: [
         {
           role: "system",
@@ -157,18 +191,49 @@ export async function scanProductLabel(options: {
       },
     });
 
-    const candidate = extractCandidate(raw);
+    stage = "extract";
+    candidate = extractCandidate(raw);
     if (candidate === null) throw new Error("AI label scan returned invalid JSON");
 
+    stage = "schema";
     const parsed = productLabelResultSchema.safeParse(candidate);
-    if (!parsed.success) throw new Error("AI label scan did not match the expected schema");
+    if (!parsed.success) {
+      schemaIssues = parsed.error.issues.map(
+        (issue) => `${issue.path.join(".") || "root"}: ${issue.message}`,
+      );
+      throw new Error("AI label scan did not match the expected schema");
+    }
 
-    const result = normalizeLabelResult(parsed.data);
-    if (!Object.values(result.nutrients).some((value) => value !== null)) {
+    stage = "validate";
+    normalized = normalizeLabelResult(parsed.data);
+    if (!Object.values(normalized.nutrients).some((value) => value !== null)) {
       throw new Error("AI label scan did not find any supported nutrition value");
     }
-    return result;
+
+    return {
+      ...normalized,
+      debug: {
+        stage: "complete",
+        model: options.env.AI_STRONG_MODEL,
+        rawPreview: previewRaw(raw),
+        candidate,
+        schemaIssues,
+        normalized,
+        error: null,
+      },
+    };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown label scan error";
+    const debug: ProductLabelDebug = {
+      stage,
+      model: options.env.AI_STRONG_MODEL,
+      rawPreview: previewRaw(raw),
+      candidate,
+      schemaIssues,
+      normalized,
+      error: errorMessage,
+    };
+
     logEvent({
       severity: "error",
       event: "product_label_scan_failed",
@@ -176,12 +241,23 @@ export async function scanProductLabel(options: {
       outcome: error instanceof Error ? error.name : "unknown",
       retryable: true,
       details: {
-        errorMessage:
-          error instanceof Error ? error.message.slice(0, 500) : "Unknown label scan error",
+        errorMessage: errorMessage.slice(0, 500),
         model: options.env.AI_STRONG_MODEL,
+        stage,
+        schemaIssues: schemaIssues.slice(0, 10),
       },
     });
-    throw error;
+    throw new ProductLabelScanError(errorMessage, debug);
+  }
+}
+
+function previewRaw(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  try {
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return text.slice(0, 8_000);
+  } catch {
+    return "[unserializable AI response]";
   }
 }
 
