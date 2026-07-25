@@ -1,0 +1,243 @@
+.health-dashboard {
+  margin: 4px 0 24px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255, 250, 240, 0.72);
+  box-shadow: 0 14px 34px rgba(45, 73, 55, 0.08);
+}
+
+.health-dashboard__heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.health-dashboard__heading h2 {
+  margin: 0;
+}
+
+.health-dashboard__heading > small {
+  max-width: 145px;
+  color: var(--muted);
+  text-align: end;
+  font-size: 0.7rem;
+}
+
+.health-dashboard__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 14px;
+}
+
+.steps-card,
+.energy-card {
+  min-width: 0;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--cream);
+  border: 1px solid rgba(212, 203, 187, 0.8);
+}
+
+.steps-card {
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 14px;
+}
+
+.steps-card__dial {
+  --step-progress: 0deg;
+  width: min(100%, 180px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  position: relative;
+  border-radius: 50%;
+  background: conic-gradient(var(--tomato) var(--step-progress), var(--paper-deep) 0);
+}
+
+.steps-card__dial.is-complete {
+  background: conic-gradient(var(--leaf) 360deg, var(--paper-deep) 0);
+}
+
+.steps-card__dial::after {
+  content: "";
+  position: absolute;
+  inset: 11px;
+  border-radius: inherit;
+  background: var(--cream);
+}
+
+.steps-card__center {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  text-align: center;
+}
+
+.steps-card__center strong {
+  font-size: clamp(1.65rem, 7vw, 2.35rem);
+  line-height: 1;
+}
+
+.steps-card__center span {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.steps-card__details {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+
+.steps-card__details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px dashed var(--line);
+  font-size: 0.76rem;
+}
+
+.steps-card__details > div:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.steps-card__details span {
+  color: var(--muted);
+}
+
+.energy-card {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.energy-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+
+.energy-card__header > div {
+  display: grid;
+}
+
+.energy-card__header > div > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.energy-card__header strong {
+  margin-top: 4px;
+  font-size: clamp(2rem, 9vw, 3rem);
+  line-height: 1;
+}
+
+.energy-card__header small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.energy-card__header > span {
+  font-size: 2rem;
+}
+
+.energy-card__rows {
+  display: grid;
+  gap: 11px;
+}
+
+.energy-card__row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+}
+
+.energy-card__row > span:nth-child(2) {
+  color: var(--muted);
+}
+
+.energy-card__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.energy-card__row.is-active .energy-card__dot {
+  background: #d77a3d;
+}
+
+.energy-card__row.is-resting .energy-card__dot {
+  background: #4f86aa;
+}
+
+.energy-card__row.is-goal .energy-card__dot {
+  background: var(--leaf);
+}
+
+.health-dashboard__state,
+.health-dashboard__empty {
+  margin: 0;
+  padding: 24px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.health-dashboard__empty {
+  display: grid;
+  gap: 7px;
+}
+
+.health-dashboard__empty strong {
+  color: var(--ink);
+}
+
+.health-dashboard__empty span {
+  font-size: 0.8rem;
+}
+
+.health-dashboard__empty a {
+  margin-top: 4px;
+  color: var(--tomato);
+  font-weight: 800;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 460px) {
+  .health-dashboard {
+    padding: 16px;
+  }
+
+  .health-dashboard__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .steps-card {
+    grid-template-columns: minmax(120px, 0.8fr) 1fr;
+    align-items: center;
+    justify-items: stretch;
+  }
+
+  .steps-card__dial {
+    width: 100%;
+  }
+}
+
+@media (max-width: 350px) {
+  .steps-card {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+}

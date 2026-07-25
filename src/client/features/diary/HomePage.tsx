@@ -2,6 +2,24 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { apiRequest } from "../../app/api";
 import type { MealSummary, TargetRow } from "../../app/types";
+import "./HomeHealth.css";
+
+type GarminStatusResponse = {
+  shortcutBridge: {
+    configured: boolean;
+    lastSuccessfulSyncAt: string | null;
+    latestDaily: {
+      localDate: string;
+      steps: number | null;
+      activeEnergyKcal: number | null;
+      restingEnergyKcal: number | null;
+      walkingRunningDistanceKm: number | null;
+      importedAt: string;
+    } | null;
+  };
+};
+
+const STEP_GOAL = 10_000;
 
 function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -9,6 +27,27 @@ function todayLocal(): string {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+function formatNumber(value: number): string {
+  return Math.round(value).toLocaleString("he-IL");
+}
+
+function formatSyncTime(value: string | null): string {
+  if (!value) return "עדיין לא בוצע סנכרון";
+
+  const syncedAt = new Date(value);
+  if (Number.isNaN(syncedAt.getTime())) return "זמן הסנכרון אינו זמין";
+
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - syncedAt.getTime()) / 60_000));
+  if (elapsedMinutes < 1) return "עודכן עכשיו";
+  if (elapsedMinutes === 1) return "עודכן לפני דקה";
+  if (elapsedMinutes < 60) return `עודכן לפני ${elapsedMinutes} דקות`;
+
+  return `עודכן ב־${new Intl.DateTimeFormat("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(syncedAt)}`;
 }
 
 export function HomePage(): React.JSX.Element {
@@ -31,6 +70,13 @@ export function HomePage(): React.JSX.Element {
         `/api/v1/coach/next?date=${date}`,
       ),
   });
+  const health = useQuery({
+    queryKey: ["garmin", "home"],
+    queryFn: () => apiRequest<GarminStatusResponse>("/api/v1/garmin/status"),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
 
   const meals = diary.data?.meals ?? [];
   const totals = meals.reduce(
@@ -46,6 +92,17 @@ export function HomePage(): React.JSX.Element {
   const calorieTarget = targets?.effective_calories ?? 0;
   const remaining = Math.max(0, calorieTarget - totals.calories);
   const progress = calorieTarget > 0 ? Math.min(100, (totals.calories / calorieTarget) * 100) : 0;
+
+  const latestDaily = health.data?.shortcutBridge.latestDaily;
+  const todayHealth = latestDaily?.localDate === date ? latestDaily : null;
+  const steps = todayHealth?.steps ?? 0;
+  const stepProgress = Math.min(100, (steps / STEP_GOAL) * 100);
+  const stepsRemaining = Math.max(0, STEP_GOAL - steps);
+  const activeEnergy = todayHealth?.activeEnergyKcal ?? 0;
+  const restingEnergy = todayHealth?.restingEnergyKcal ?? 0;
+  const totalBurned = activeEnergy + restingEnergy;
+  const syncTime =
+    todayHealth?.importedAt ?? health.data?.shortcutBridge.lastSuccessfulSyncAt ?? null;
 
   return (
     <div className="page home-page">
@@ -68,6 +125,84 @@ export function HomePage(): React.JSX.Element {
           <b>להשלמת הפרופיל ←</b>
         </Link>
       )}
+
+      <section className="health-dashboard" aria-labelledby="activity-title">
+        <div className="health-dashboard__heading">
+          <div>
+            <p className="eyebrow">פעילות</p>
+            <h2 id="activity-title">התנועה שלך היום</h2>
+          </div>
+          <small>{health.isFetching ? "מסנכרנים…" : formatSyncTime(syncTime)}</small>
+        </div>
+
+        {health.isLoading ? (
+          <p className="health-dashboard__state">טוענים נתוני פעילות…</p>
+        ) : health.isError ? (
+          <p className="health-dashboard__state">לא הצלחנו לטעון את נתוני הפעילות כרגע.</p>
+        ) : !todayHealth ? (
+          <div className="health-dashboard__empty">
+            <strong>אין עדיין נתוני Apple Health להיום</strong>
+            <span>הפעל את קיצור הדרך ולאחר מכן הנתונים יופיעו כאן אוטומטית.</span>
+            <Link to="/settings">להגדרות החיבור ←</Link>
+          </div>
+        ) : (
+          <div className="health-dashboard__grid">
+            <article className="steps-card">
+              <div
+                className={`steps-card__dial${steps >= STEP_GOAL ? " is-complete" : ""}`}
+                style={{ "--step-progress": `${stepProgress * 3.6}deg` } as React.CSSProperties}
+                aria-label={`${formatNumber(steps)} צעדים מתוך ${formatNumber(STEP_GOAL)}`}
+              >
+                <div className="steps-card__center">
+                  <strong>{formatNumber(steps)}</strong>
+                  <span>צעדים היום</span>
+                </div>
+              </div>
+              <div className="steps-card__details">
+                <div>
+                  <span>יעד</span>
+                  <b>{formatNumber(STEP_GOAL)}</b>
+                </div>
+                <div>
+                  <span>{steps >= STEP_GOAL ? "מצב" : "נותרו"}</span>
+                  <b>{steps >= STEP_GOAL ? "🎉 הושג" : formatNumber(stepsRemaining)}</b>
+                </div>
+                {todayHealth.walkingRunningDistanceKm !== null && (
+                  <div>
+                    <span>מרחק</span>
+                    <b>
+                      {todayHealth.walkingRunningDistanceKm.toLocaleString("he-IL", {
+                        maximumFractionDigits: 1,
+                      })}{" "}
+                      ק״מ
+                    </b>
+                  </div>
+                )}
+              </div>
+            </article>
+
+            <article className="energy-card">
+              <div className="energy-card__header">
+                <div>
+                  <span>סה״כ נשרפו</span>
+                  <strong>{formatNumber(totalBurned)}</strong>
+                  <small>קלוריות</small>
+                </div>
+                <span aria-hidden="true">🔥</span>
+              </div>
+              <div className="energy-card__rows">
+                <EnergyRow className="is-active" label="קלוריות פעילות" value={activeEnergy} />
+                <EnergyRow className="is-resting" label="קלוריות מנוחה" value={restingEnergy} />
+                <EnergyRow
+                  className="is-goal"
+                  label="יעד קלוריות יומי"
+                  value={calorieTarget > 0 ? calorieTarget : null}
+                />
+              </div>
+            </article>
+          </div>
+        )}
+      </section>
 
       <section className="remaining-orbit" aria-labelledby="remaining-title">
         <div
@@ -161,6 +296,24 @@ export function HomePage(): React.JSX.Element {
         <Link to="/shopping">רשימת קניות משותפת</Link>
         <Link to="/products">מוצרים וברקודים</Link>
       </div>
+    </div>
+  );
+}
+
+function EnergyRow({
+  className,
+  label,
+  value,
+}: {
+  className: string;
+  label: string;
+  value: number | null;
+}): React.JSX.Element {
+  return (
+    <div className={`energy-card__row ${className}`}>
+      <span className="energy-card__dot" aria-hidden="true" />
+      <span>{label}</span>
+      <b>{value === null ? "—" : formatNumber(value)}</b>
     </div>
   );
 }
