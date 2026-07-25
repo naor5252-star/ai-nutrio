@@ -3,6 +3,7 @@ import type { RuntimeEnv } from "../context";
 import { logEvent } from "../services/logger";
 
 const nullableNutrient = z.number().finite().nonnegative().nullable().catch(null);
+const nutrientConfidence = z.enum(["high", "medium", "low", "missing"]).catch("missing");
 
 const productLabelResultSchema = z.object({
   suggestedNameHe: z.string().trim().max(160).nullable().catch(null),
@@ -23,6 +24,14 @@ const productLabelResultSchema = z.object({
     fat: nullableNutrient,
     fiber: nullableNutrient,
   }),
+  nutrientConfidence: z.object({
+    energyKcal: nutrientConfidence,
+    protein: nutrientConfidence,
+    carbohydrate: nutrientConfidence,
+    fat: nutrientConfidence,
+    fiber: nutrientConfidence,
+  }),
+  detectedBasis: z.enum(["per_100g", "per_100ml", "per_serving", "unknown"]).catch("unknown"),
   confidence: z.enum(["high", "medium", "low"]).catch("low"),
   warningsHe: z.array(z.string().max(240)).max(10).catch([]),
 });
@@ -49,7 +58,7 @@ export async function scanProductLabel(options: {
         {
           role: "system",
           content:
-            "You are a meticulous nutrition-table OCR specialist. Return JSON only. Read Hebrew and English nutrition tables, preserve the printed basis, never infer a number that is not visible, and do not identify the product, brand, or barcode.",
+            "You are a meticulous nutrition-table OCR specialist. Return JSON only. First understand table structure: identify row labels, column headers, and map each value to the correct row and column. Read Hebrew, Arabic and English. Preserve the printed basis. Never infer a number that is not visible. Do not identify the product, brand, or barcode. Partial extraction is valid and preferred over failure.",
         },
         {
           role: "user",
@@ -58,12 +67,17 @@ export async function scanProductLabel(options: {
               type: "text",
               text: [
                 "קרא רק את טבלת הסימון התזונתי הנראית בתמונה.",
+                "לפני חילוץ מספרים, זהה את כותרות העמודות ואת שורות הרכיבים. טבלה עשויה להכיל 100 גרם/100 מ״ל וגם מנה/חטיף בעמודות סמוכות.",
+                "אם קיימת עמודת 100 גרם או 100 מ״ל, השתמש רק בה לערכי nutrients, הגדר baseQuantity=100 ו-baseUnit בהתאם, והחזר detectedBasis=per_100g או per_100ml.",
+                "אם אין עמודת 100 גרם/מ״ל ויש רק מנה, השתמש בערכים המודפסים למנה, הגדר detectedBasis=per_serving ושמור servingWeight אם הוא נראה. אל תנרמל בניחוש.",
+                "אנרגיה חייבת להיות kcal. אם מופיעים גם kJ וגם kcal, בחר רק kcal.",
+                "מיפוי: סך השומנים -> fat, סך הפחמימות -> carbohydrate, חלבונים -> protein, סיבים תזונתיים -> fiber.",
+                "אל תשתמש בשומן רווי במקום שומן כולל, בסוכרים במקום פחמימות, בנתרן כאנרגיה, או בכפיות סוכר כאחד מערכי nutrients.",
+                "ערך שלא ניתן לקרוא בביטחון נשאר null. תא חסר לא מפיל את כל הסריקה.",
+                "לכל nutrient החזר nutrientConfidence: high, medium, low או missing. missing חובה כאשר הערך null.",
                 "אל תנסה לזהות מוצר, מותג או ברקוד. החזר תמיד suggestedNameHe=null, brand=null, barcode=null.",
-                "הבחן בין ערכים ל-100 גרם או 100 מ״ל לבין ערכים למנה. העדף את עמודת 100 גרם או 100 מ״ל כאשר היא קיימת.",
-                "כאשר מופיעים רק ערכים למנה, שמור את תיאור ומשקל המנה ואל תנרמל ל-100 אלא אם החישוב חד-משמעי.",
-                "אל תבלבל בין קילו-ג׳אול לקלוריות, בין נתרן לאנרגיה, או בין פחמימות לסוכרים.",
-                "החזר אובייקט JSON עם המפתחות suggestedNameHe, brand, barcode, baseQuantity, baseUnit, servingDescriptionHe, servingWeight, nutrients, confidence, warningsHe.",
-                "בתוך nutrients החזר energyKcal, protein, carbohydrate, fat, fiber. כל טקסט או מספר שאינם נראים חייבים להיות null.",
+                "החזר JSON עם suggestedNameHe, brand, barcode, baseQuantity, baseUnit, servingDescriptionHe, servingWeight, nutrients, nutrientConfidence, detectedBasis, confidence, warningsHe.",
+                "בדיקת היגיון לדוגמה בלבד: אם בעמודת 100 גרם מופיעים 408 קלוריות, 14.5 שומן, 58 פחמימות, 11.1 סיבים ו-6.2 חלבון, אלו הערכים שיש לשייך לשדות המתאימים ולא לערכי המנה שבעמודה סמוכה.",
               ].join(" "),
             },
             {
@@ -105,6 +119,22 @@ export async function scanProductLabel(options: {
                 },
                 required: ["energyKcal", "protein", "carbohydrate", "fat", "fiber"],
               },
+              nutrientConfidence: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  energyKcal: { type: "string", enum: ["high", "medium", "low", "missing"] },
+                  protein: { type: "string", enum: ["high", "medium", "low", "missing"] },
+                  carbohydrate: { type: "string", enum: ["high", "medium", "low", "missing"] },
+                  fat: { type: "string", enum: ["high", "medium", "low", "missing"] },
+                  fiber: { type: "string", enum: ["high", "medium", "low", "missing"] },
+                },
+                required: ["energyKcal", "protein", "carbohydrate", "fat", "fiber"],
+              },
+              detectedBasis: {
+                type: "string",
+                enum: ["per_100g", "per_100ml", "per_serving", "unknown"],
+              },
               confidence: { type: "string", enum: ["high", "medium", "low"] },
               warningsHe: { type: "array", items: { type: "string" } },
             },
@@ -117,6 +147,8 @@ export async function scanProductLabel(options: {
               "servingDescriptionHe",
               "servingWeight",
               "nutrients",
+              "nutrientConfidence",
+              "detectedBasis",
               "confidence",
               "warningsHe",
             ],
@@ -130,7 +162,12 @@ export async function scanProductLabel(options: {
 
     const parsed = productLabelResultSchema.safeParse(candidate);
     if (!parsed.success) throw new Error("AI label scan did not match the expected schema");
-    return parsed.data;
+
+    const result = normalizeLabelResult(parsed.data);
+    if (!Object.values(result.nutrients).some((value) => value !== null)) {
+      throw new Error("AI label scan did not find any supported nutrition value");
+    }
+    return result;
   } catch (error) {
     logEvent({
       severity: "error",
@@ -146,6 +183,22 @@ export async function scanProductLabel(options: {
     });
     throw error;
   }
+}
+
+function normalizeLabelResult(result: ProductLabelResult): ProductLabelResult {
+  const nutrientConfidence = { ...result.nutrientConfidence };
+
+  for (const key of ["energyKcal", "protein", "carbohydrate", "fat", "fiber"] as const) {
+    if (result.nutrients[key] === null) nutrientConfidence[key] = "missing";
+  }
+
+  return {
+    ...result,
+    suggestedNameHe: null,
+    brand: null,
+    barcode: null,
+    nutrientConfidence,
+  };
 }
 
 function isAiBinding(value: unknown): value is GenericAiBinding {

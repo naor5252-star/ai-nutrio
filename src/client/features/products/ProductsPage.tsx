@@ -33,6 +33,14 @@ type LabelScan = {
     fat: number | null;
     fiber: number | null;
   };
+  nutrientConfidence: {
+    energyKcal: "high" | "medium" | "low" | "missing";
+    protein: "high" | "medium" | "low" | "missing";
+    carbohydrate: "high" | "medium" | "low" | "missing";
+    fat: "high" | "medium" | "low" | "missing";
+    fiber: "high" | "medium" | "low" | "missing";
+  };
+  detectedBasis: "per_100g" | "per_100ml" | "per_serving" | "unknown";
   confidence: "high" | "medium" | "low";
   warningsHe: string[];
 };
@@ -345,7 +353,22 @@ export function ProductsPage(): React.JSX.Element {
       setCatalogSearchCompleted(false);
       const confidenceText =
         scan.confidence === "high" ? "הערכים נקראו מהטבלה" : "כדאי לבדוק את הערכים מול הטבלה";
-      setMessage(`${confidenceText}. הזן ידנית את שם המוצר ואז בדוק ושמור.`);
+      const basisText =
+        scan.detectedBasis === "per_100g"
+          ? "ל־100 גרם"
+          : scan.detectedBasis === "per_100ml"
+            ? "ל־100 מ״ל"
+            : scan.detectedBasis === "per_serving"
+              ? "למנה"
+              : "לפי הבסיס שנקרא מהתמונה";
+      const missingCount = Object.values(scan.nutrientConfidence).filter(
+        (value) => value === "missing",
+      ).length;
+      setMessage(
+        `${confidenceText} ${basisText}. ${
+          missingCount > 0 ? `${missingCount} ערכים לא זוהו ונשארו ריקים. ` : ""
+        }הזן ידנית את שם המוצר ואז בדוק ושמור.`,
+      );
     } catch (error) {
       setShowForm(true);
       setMessage(
