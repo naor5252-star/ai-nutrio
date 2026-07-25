@@ -35,12 +35,7 @@ function formatNumber(value: number): string {
 }
 
 function buildHealthShortcutUrl(): string {
-  const callbackUrl = `${window.location.origin}${window.location.pathname}`;
-  const encodedCallback = encodeURIComponent(callbackUrl);
-
-  return `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(
-    HEALTH_SHORTCUT_NAME,
-  )}&x-success=${encodedCallback}&x-cancel=${encodedCallback}&x-error=${encodedCallback}`;
+  return `shortcuts://run-shortcut?name=${encodeURIComponent(HEALTH_SHORTCUT_NAME)}`;
 }
 
 function formatSyncTime(value: string | null): string {
