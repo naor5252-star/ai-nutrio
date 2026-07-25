@@ -19,11 +19,38 @@
   margin: 0;
 }
 
-.health-dashboard__heading > small {
-  max-width: 145px;
+.health-dashboard__sync {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+}
+
+.health-dashboard__sync > small {
+  max-width: 160px;
   color: var(--muted);
   text-align: end;
   font-size: 0.7rem;
+}
+
+.health-sync-button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--leaf);
+  color: white;
+  text-decoration: none;
+  font-size: 0.76rem;
+  font-weight: 850;
+  box-shadow: 0 7px 18px rgba(45, 73, 55, 0.16);
+}
+
+.health-sync-button span {
+  font-size: 1.05rem;
+  line-height: 1;
 }
 
 .health-dashboard__grid {
@@ -218,6 +245,19 @@
 @media (max-width: 460px) {
   .health-dashboard {
     padding: 16px;
+  }
+
+  .health-dashboard__heading {
+    align-items: start;
+  }
+
+  .health-dashboard__sync {
+    max-width: 145px;
+  }
+
+  .health-sync-button {
+    padding-inline: 10px;
+    font-size: 0.72rem;
   }
 
   .health-dashboard__grid {

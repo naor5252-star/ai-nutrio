@@ -20,6 +20,7 @@ type GarminStatusResponse = {
 };
 
 const STEP_GOAL = 10_000;
+const HEALTH_SHORTCUT_NAME = "update app";
 
 function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -31,6 +32,15 @@ function todayLocal(): string {
 
 function formatNumber(value: number): string {
   return Math.round(value).toLocaleString("he-IL");
+}
+
+function buildHealthShortcutUrl(): string {
+  const callbackUrl = `${window.location.origin}${window.location.pathname}`;
+  const encodedCallback = encodeURIComponent(callbackUrl);
+
+  return `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(
+    HEALTH_SHORTCUT_NAME,
+  )}&x-success=${encodedCallback}&x-cancel=${encodedCallback}&x-error=${encodedCallback}`;
 }
 
 function formatSyncTime(value: string | null): string {
@@ -132,7 +142,13 @@ export function HomePage(): React.JSX.Element {
             <p className="eyebrow">פעילות</p>
             <h2 id="activity-title">התנועה שלך היום</h2>
           </div>
-          <small>{health.isFetching ? "מסנכרנים…" : formatSyncTime(syncTime)}</small>
+          <div className="health-dashboard__sync">
+            <small>{health.isFetching ? "מסנכרנים…" : formatSyncTime(syncTime)}</small>
+            <a className="health-sync-button" href={buildHealthShortcutUrl()}>
+              <span aria-hidden="true">↻</span>
+              סנכרן Apple Health
+            </a>
+          </div>
         </div>
 
         {health.isLoading ? (
@@ -142,7 +158,7 @@ export function HomePage(): React.JSX.Element {
         ) : !todayHealth ? (
           <div className="health-dashboard__empty">
             <strong>אין עדיין נתוני Apple Health להיום</strong>
-            <span>הפעל את קיצור הדרך ולאחר מכן הנתונים יופיעו כאן אוטומטית.</span>
+            <span>לחץ על „סנכרן Apple Health”, והנתונים יופיעו כאן לאחר שהקיצור יסתיים.</span>
             <Link to="/settings">להגדרות החיבור ←</Link>
           </div>
         ) : (
