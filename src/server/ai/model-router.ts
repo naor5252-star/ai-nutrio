@@ -19,6 +19,12 @@ type AiRouteResult = {
   route: "disabled" | "fast" | "fast_then_strong";
 };
 
+export type FoodCatalogEntry = {
+  nameHe: string;
+  brand: string | null;
+  energyKcalPer100: number | null;
+};
+
 export async function analyzeMealImages(
   env: RuntimeEnv,
   images: ImageInput[],
@@ -56,6 +62,7 @@ export async function analyzeMealImages(
 export async function analyzeMealText(
   env: RuntimeEnv,
   description: string,
+  catalog: FoodCatalogEntry[] = [],
 ): Promise<AiRouteResult> {
   if (env.AI_ENABLED !== "true") {
     return {
@@ -75,7 +82,13 @@ export async function analyzeMealText(
   }
 
   const strongModel = env.AI_STRONG_MODEL;
-  const strongParsed = await tryAnalyzeTextWithModel(aiValue, strongModel, description, true);
+  const strongParsed = await tryAnalyzeTextWithModel(
+    aiValue,
+    strongModel,
+    description,
+    true,
+    catalog,
+  );
   if (strongParsed) {
     return {
       result: normalizeTextResult(strongParsed),
@@ -86,7 +99,13 @@ export async function analyzeMealText(
 
   const fastModel = env.AI_FAST_MODEL;
   if (fastModel !== strongModel) {
-    const fastParsed = await tryAnalyzeTextWithModel(aiValue, fastModel, description, false);
+    const fastParsed = await tryAnalyzeTextWithModel(
+      aiValue,
+      fastModel,
+      description,
+      false,
+      catalog,
+    );
     if (fastParsed) {
       return {
         result: normalizeTextResult(fastParsed),
@@ -111,9 +130,10 @@ async function tryAnalyzeTextWithModel(
   model: string,
   description: string,
   strong: boolean,
+  catalog: FoodCatalogEntry[],
 ): Promise<MealAnalysisResult | null> {
   try {
-    const raw = await aiValue.run(model, createTextPayload(description, strong));
+    const raw = await aiValue.run(model, createTextPayload(description, strong, catalog));
     return parseModelResponse(raw);
   } catch {
     return null;
@@ -130,8 +150,21 @@ function normalizeTextResult(result: MealAnalysisResult): MealAnalysisResult {
   return normalized;
 }
 
-function createTextPayload(description: string, strong: boolean): Record<string, unknown> {
+function createTextPayload(
+  description: string,
+  strong: boolean,
+  catalog: FoodCatalogEntry[],
+): Record<string, unknown> {
   const basePayload = createVisionPayload([], strong);
+  const catalogText = catalog
+    .slice(0, 80)
+    .map(
+      (food) =>
+        `${food.nameHe}${food.brand ? ` (${food.brand})` : ""}: ${
+          food.energyKcalPer100 === null ? "קלוריות לא ידועות" : `${food.energyKcalPer100} קלוריות`
+        } ל-100 גרם`,
+    )
+    .join("\n");
   Reflect.deleteProperty(basePayload, "max_tokens");
   return {
     ...basePayload,
@@ -150,6 +183,9 @@ function createTextPayload(description: string, strong: boolean): Record<string,
           "שמור כמויות ויחידות שנכתבו. המר לגרמים רק כאשר ההמרה סבירה וברורה.",
           "כאשר כמות חסרה, החזר estimatedQuantity ו-estimatedGrams כ-null וסמן quantityConfidence כ-low.",
           "הערך טווח קלוריות שמרני. אל תנחש שמן, רוטב, תוספת, מותג או שיטת בישול שלא צוינו.",
+          catalogText
+            ? `מאגר מזונות זמין. העדף התאמה למאגר על פני הערכת AI כאשר השם מתאים:\n${catalogText}`
+            : "לא הועבר מאגר מזונות זמין.",
           "החזר JSON בלבד לפי הסכמה.",
         ].join(" "),
       },

@@ -5,7 +5,12 @@ import {
   type MealAnalysisResult,
 } from "../../shared/schemas/meal-analysis";
 import type { RuntimeEnv } from "../context";
-import { analyzeMealImages, analyzeMealText, type ImageInput } from "../ai/model-router";
+import {
+  analyzeMealImages,
+  analyzeMealText,
+  type FoodCatalogEntry,
+  type ImageInput,
+} from "../ai/model-router";
 import { nowIso } from "../repositories/db";
 import { secureUuid } from "../security/crypto";
 import { logEvent } from "../services/logger";
@@ -45,14 +50,21 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
 
       let route: Awaited<ReturnType<typeof analyzeMealImages>>;
       if (mealText) {
+        const catalog = await step.do("load food catalog for text analysis", async () =>
+          loadFoodCatalog(this.env, params.userId),
+        );
         route = await step.do(
           "analyze meal text and validate output",
           {
             retries: { limit: 2, delay: "5 seconds", backoff: "exponential" },
             timeout: "3 minutes",
           },
-          async () => analyzeMealText(this.env, mealText),
+          async () => analyzeMealText(this.env, mealText, catalog),
         );
+        route = {
+          ...route,
+          result: enrichTextResultWithCatalog(route.result, catalog),
+        };
       } else {
         const references = await step.do("validate R2 references", async () => {
           const rows = await this.env.DB.prepare(
@@ -235,4 +247,77 @@ function requiresUserInput(result: MealAnalysisResult): boolean {
         item.nutritionConfidence === "low",
     )
   );
+}
+
+async function loadFoodCatalog(env: RuntimeEnv, userId: string): Promise<FoodCatalogEntry[]> {
+  const rows = await env.DB.prepare(
+    `SELECT
+       f.canonical_name_he AS nameHe,
+       f.brand,
+       (SELECT fn.normalized_value
+          FROM food_nutrients fn
+         WHERE fn.food_id = f.id AND fn.nutrient_code = 'energy_kcal'
+         ORDER BY fn.created_at DESC LIMIT 1) AS energyKcalPer100
+     FROM foods f
+     WHERE f.is_shared = 1
+        OR f.owner_household_id = (
+          SELECT hm.household_id FROM household_members hm WHERE hm.user_id = ? LIMIT 1
+        )
+     ORDER BY CASE WHEN f.owner_household_id IS NULL THEN 1 ELSE 0 END, f.updated_at DESC
+     LIMIT 120`,
+  )
+    .bind(userId)
+    .all<FoodCatalogEntry>();
+
+  return rows.results;
+}
+
+function enrichTextResultWithCatalog(
+  result: MealAnalysisResult,
+  catalog: FoodCatalogEntry[],
+): MealAnalysisResult {
+  return {
+    ...result,
+    detectedItems: result.detectedItems.map((item) => {
+      const match = findCatalogMatch(item.candidateNameHe, catalog);
+      if (!match || item.estimatedGrams === null || match.energyKcalPer100 === null) return item;
+
+      const calories = Math.round((match.energyKcalPer100 * item.estimatedGrams) / 100);
+      return {
+        ...item,
+        candidateNameHe: match.nameHe,
+        nutritionConfidence: "high",
+        plausibleCaloriesMin: calories,
+        plausibleCaloriesMax: calories,
+        notes: [
+          ...(item.notes ?? []),
+          `הקלוריות חושבו מהמאגר: ${match.nameHe}${match.brand ? ` (${match.brand})` : ""}`,
+        ],
+      };
+    }),
+  };
+}
+
+function findCatalogMatch(name: string, catalog: FoodCatalogEntry[]): FoodCatalogEntry | null {
+  const normalized = normalizeFoodName(name);
+  const exact = catalog.find((food) => normalizeFoodName(food.nameHe) === normalized);
+  if (exact) return exact;
+
+  return (
+    catalog.find((food) => {
+      const candidate = normalizeFoodName(food.nameHe);
+      return (
+        candidate.length >= 3 && (normalized.includes(candidate) || candidate.includes(normalized))
+      );
+    }) ?? null
+  );
+}
+
+function normalizeFoodName(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase("he-IL")
+    .replace(/[״"'׳.,:;()\-]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
