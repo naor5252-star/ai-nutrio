@@ -317,7 +317,7 @@ function normalizeFoodName(value: string): string {
   return value
     .trim()
     .toLocaleLowerCase("he-IL")
-    .replace(/[״"'׳.,:;()\-]/gu, " ")
+    .replace(/[״"'׳.,:;()-]/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
 }
