@@ -32,6 +32,30 @@ export type AnalysisItem = {
   nutritionConfidence: "high" | "medium" | "low";
   plausibleCaloriesMin: number | null;
   plausibleCaloriesMax: number | null;
+  nutrition?: {
+    energyKcal: number | null;
+    proteinGrams: number | null;
+    carbohydrateGrams: number | null;
+    fatGrams: number | null;
+    fiberGrams: number | null;
+  };
+  nutritionSource?: "database" | "ai_estimate";
+  matchedFoodId?: string | null;
+  nutritionBasis?: {
+    baseQuantity: number;
+    baseUnit: "g" | "ml";
+    energyKcal: number | null;
+    proteinGrams: number | null;
+    carbohydrateGrams: number | null;
+    fatGrams: number | null;
+    fiberGrams: number | null;
+  } | null;
+  servingOptions?: Array<{
+    labelHe: string;
+    unit: string;
+    baseAmount: number;
+    baseUnit: "g" | "ml";
+  }>;
   notes?: string[];
 };
 

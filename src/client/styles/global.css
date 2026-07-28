@@ -1118,6 +1118,14 @@ small {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+.portion-editor { display:grid; grid-template-columns:1.2fr .8fr .8fr; gap:10px; align-items:end; }
+.portion-editor label { min-width:0; }
+.portion-editor select { width:100%; }
+.portion-equivalent { display:block; margin-top:7px; color:var(--muted); font-size:.72rem; }
+.nutrition-source-note { margin-top:10px; padding:8px 10px; border-radius:10px; font-size:.72rem; font-weight:800; }
+.nutrition-source-note--database { background:#e4ede5; color:var(--leaf-dark); }
+.nutrition-source-note--ai { background:#f4ead2; color:#775d28; }
+@media (max-width:460px) { .portion-editor { grid-template-columns:1fr 1fr; } .portion-editor label:first-child { grid-column:1/-1; } }
 details {
   margin-top: 12px;
   border-top: 1px solid var(--line);

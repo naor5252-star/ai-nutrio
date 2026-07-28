@@ -48,11 +48,12 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
         },
       );
 
+      const catalog = await step.do("load food catalog for meal analysis", async () =>
+        loadFoodCatalog(this.env, params.userId),
+      );
+
       let route: Awaited<ReturnType<typeof analyzeMealImages>>;
       if (mealText) {
-        const catalog = await step.do("load food catalog for text analysis", async () =>
-          loadFoodCatalog(this.env, params.userId),
-        );
         route = await step.do(
           "analyze meal text and validate output",
           {
@@ -61,10 +62,6 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
           },
           async () => analyzeMealText(this.env, mealText, catalog),
         );
-        route = {
-          ...route,
-          result: enrichTextResultWithCatalog(route.result, catalog),
-        };
       } else {
         const references = await step.do("validate R2 references", async () => {
           const rows = await this.env.DB.prepare(
@@ -106,6 +103,8 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
           },
         );
       }
+
+      route = { ...route, result: enrichResultWithCatalog(route.result, catalog) };
 
       await step.do(
         "persist validated result",
@@ -249,68 +248,182 @@ function requiresUserInput(result: MealAnalysisResult): boolean {
   );
 }
 
+type CatalogRow = Omit<FoodCatalogEntry, "servingOptions">;
+type ServingRow = {
+  foodId: string;
+  labelHe: string;
+  unit: string;
+  baseAmount: number | null;
+  baseUnit: "g" | "ml";
+};
+
 async function loadFoodCatalog(env: RuntimeEnv, userId: string): Promise<FoodCatalogEntry[]> {
-  const rows = await env.DB.prepare(
-    `SELECT
-       f.canonical_name_he AS nameHe,
-       f.brand,
-       (SELECT fn.normalized_value
-          FROM food_nutrients fn
-         WHERE fn.food_id = f.id AND fn.nutrient_code = 'energy_kcal'
-         ORDER BY fn.created_at DESC LIMIT 1) AS energyKcalPer100
+  const foods = await env.DB.prepare(
+    `SELECT f.id, f.canonical_name_he AS nameHe, f.canonical_name_en AS nameEn, f.brand,
+       COALESCE((SELECT fn.base_quantity FROM food_nutrients fn WHERE fn.food_id=f.id ORDER BY fn.created_at DESC LIMIT 1),100) AS baseQuantity,
+       COALESCE((SELECT fn.base_unit FROM food_nutrients fn WHERE fn.food_id=f.id ORDER BY fn.created_at DESC LIMIT 1),'g') AS baseUnit,
+       (SELECT fn.normalized_value FROM food_nutrients fn WHERE fn.food_id=f.id AND fn.nutrient_code='energy_kcal' ORDER BY fn.created_at DESC LIMIT 1) AS energyKcal,
+       (SELECT fn.normalized_value FROM food_nutrients fn WHERE fn.food_id=f.id AND fn.nutrient_code='protein' ORDER BY fn.created_at DESC LIMIT 1) AS proteinGrams,
+       (SELECT fn.normalized_value FROM food_nutrients fn WHERE fn.food_id=f.id AND fn.nutrient_code='carbohydrate' ORDER BY fn.created_at DESC LIMIT 1) AS carbohydrateGrams,
+       (SELECT fn.normalized_value FROM food_nutrients fn WHERE fn.food_id=f.id AND fn.nutrient_code='fat' ORDER BY fn.created_at DESC LIMIT 1) AS fatGrams,
+       (SELECT fn.normalized_value FROM food_nutrients fn WHERE fn.food_id=f.id AND fn.nutrient_code='fiber' ORDER BY fn.created_at DESC LIMIT 1) AS fiberGrams
      FROM foods f
-     WHERE f.is_shared = 1
-        OR f.owner_household_id = (
-          SELECT hm.household_id FROM household_members hm WHERE hm.user_id = ? LIMIT 1
-        )
-     ORDER BY CASE WHEN f.owner_household_id IS NULL THEN 1 ELSE 0 END, f.updated_at DESC
-     LIMIT 120`,
+     WHERE f.owner_household_id=(SELECT hm.household_id FROM household_members hm WHERE hm.user_id=? LIMIT 1)
+        OR (f.owner_household_id IS NULL AND f.is_shared=1)
+     ORDER BY CASE WHEN f.owner_household_id IS NULL THEN 1 ELSE 0 END, f.updated_at DESC LIMIT 120`,
   )
     .bind(userId)
-    .all<FoodCatalogEntry>();
+    .all<CatalogRow>();
 
-  return rows.results;
+  const servings = await env.DB.prepare(
+    `SELECT fs.food_id AS foodId, fs.description_he AS labelHe, fs.unit, fs.grams_or_ml AS baseAmount,
+       COALESCE((SELECT fn.base_unit FROM food_nutrients fn WHERE fn.food_id=f.id ORDER BY fn.created_at DESC LIMIT 1),'g') AS baseUnit
+     FROM food_servings fs JOIN foods f ON f.id=fs.food_id
+     WHERE (f.owner_household_id=(SELECT hm.household_id FROM household_members hm WHERE hm.user_id=? LIMIT 1)
+        OR (f.owner_household_id IS NULL AND f.is_shared=1))
+       AND fs.grams_or_ml IS NOT NULL AND fs.grams_or_ml>0
+     ORDER BY fs.created_at DESC`,
+  )
+    .bind(userId)
+    .all<ServingRow>();
+
+  const byFood = new Map<string, FoodCatalogEntry["servingOptions"]>();
+  for (const row of servings.results) {
+    if (row.baseAmount === null) continue;
+    const list = byFood.get(row.foodId) ?? [];
+    if (list.length < 7)
+      list.push({
+        labelHe: row.labelHe,
+        unit: row.unit,
+        baseAmount: row.baseAmount,
+        baseUnit: row.baseUnit,
+      });
+    byFood.set(row.foodId, list);
+  }
+  return foods.results.map((food) => ({ ...food, servingOptions: byFood.get(food.id) ?? [] }));
 }
 
-function enrichTextResultWithCatalog(
+function enrichResultWithCatalog(
   result: MealAnalysisResult,
   catalog: FoodCatalogEntry[],
 ): MealAnalysisResult {
   return {
     ...result,
     detectedItems: result.detectedItems.map((item) => {
-      const match = findCatalogMatch(item.candidateNameHe, catalog);
-      if (!match || item.estimatedGrams === null || match.energyKcalPer100 === null) return item;
-
-      const calories = Math.round((match.energyKcalPer100 * item.estimatedGrams) / 100);
+      const match = findCatalogMatch(item, catalog);
+      if (!match)
+        return {
+          ...item,
+          nutritionSource: "ai_estimate",
+          servingOptions: item.servingOptions ?? [baseServing("g")],
+        };
+      const baseAmount = resolveBaseAmount(item, match);
+      const dbNutrition = baseAmount === null ? null : scaleCatalogNutrition(match, baseAmount);
+      const calories = dbNutrition?.energyKcal ?? null;
       return {
         ...item,
         candidateNameHe: match.nameHe,
-        nutritionConfidence: "high",
-        plausibleCaloriesMin: calories,
-        plausibleCaloriesMax: calories,
+        matchedFoodId: match.id,
+        nutritionSource: dbNutrition ? "database" : "ai_estimate",
+        nutrition: dbNutrition ?? item.nutrition,
+        nutritionBasis: {
+          baseQuantity: match.baseQuantity,
+          baseUnit: match.baseUnit,
+          energyKcal: match.energyKcal,
+          proteinGrams: match.proteinGrams,
+          carbohydrateGrams: match.carbohydrateGrams,
+          fatGrams: match.fatGrams,
+          fiberGrams: match.fiberGrams,
+        },
+        servingOptions: [baseServing(match.baseUnit), ...match.servingOptions].slice(0, 8),
+        nutritionConfidence: dbNutrition ? "high" : item.nutritionConfidence,
+        plausibleCaloriesMin: calories ?? item.plausibleCaloriesMin,
+        plausibleCaloriesMax: calories ?? item.plausibleCaloriesMax,
         notes: [
           ...(item.notes ?? []),
-          `הקלוריות חושבו מהמאגר: ${match.nameHe}${match.brand ? ` (${match.brand})` : ""}`,
+          dbNutrition
+            ? `הערכים התזונתיים חושבו מהמאגר: ${match.nameHe}`
+            : `נמצאה התאמה במאגר: ${match.nameHe}. בחר מנה או כמות לחישוב.`,
         ],
       };
     }),
   };
 }
 
-function findCatalogMatch(name: string, catalog: FoodCatalogEntry[]): FoodCatalogEntry | null {
-  const normalized = normalizeFoodName(name);
-  const exact = catalog.find((food) => normalizeFoodName(food.nameHe) === normalized);
-  if (exact) return exact;
+function baseServing(baseUnit: "g" | "ml"): FoodCatalogEntry["servingOptions"][number] {
+  return {
+    labelHe: baseUnit === "ml" ? "מ״ל" : "גרמים",
+    unit: baseUnit === "ml" ? "מ״ל" : "גרם",
+    baseAmount: 1,
+    baseUnit,
+  };
+}
 
-  return (
-    catalog.find((food) => {
-      const candidate = normalizeFoodName(food.nameHe);
-      return (
-        candidate.length >= 3 && (normalized.includes(candidate) || candidate.includes(normalized))
-      );
-    }) ?? null
-  );
+function resolveBaseAmount(
+  item: MealAnalysisResult["detectedItems"][number],
+  match: FoodCatalogEntry,
+): number | null {
+  if (match.baseUnit === "g" && item.estimatedGrams !== null) return item.estimatedGrams;
+  if (item.estimatedQuantity !== null && item.estimatedUnit) {
+    const unit = normalizeFoodName(item.estimatedUnit);
+    const serving = match.servingOptions.find(
+      (option) =>
+        normalizeFoodName(option.unit) === unit || normalizeFoodName(option.labelHe).includes(unit),
+    );
+    if (serving) return item.estimatedQuantity * serving.baseAmount;
+  }
+  return null;
+}
+
+function scaleCatalogNutrition(
+  food: FoodCatalogEntry,
+  amount: number,
+): NonNullable<MealAnalysisResult["detectedItems"][number]["nutrition"]> {
+  const factor = amount / food.baseQuantity;
+  const scale = (value: number | null) =>
+    value === null ? null : Math.round(value * factor * 10) / 10;
+  return {
+    energyKcal: scale(food.energyKcal),
+    proteinGrams: scale(food.proteinGrams),
+    carbohydrateGrams: scale(food.carbohydrateGrams),
+    fatGrams: scale(food.fatGrams),
+    fiberGrams: scale(food.fiberGrams),
+  };
+}
+
+function findCatalogMatch(
+  item: MealAnalysisResult["detectedItems"][number],
+  catalog: FoodCatalogEntry[],
+): FoodCatalogEntry | null {
+  const names = [
+    item.candidateNameHe,
+    item.candidateNameEn ?? "",
+    ...(item.alternativeCandidates ?? []),
+  ]
+    .map(normalizeFoodName)
+    .filter(Boolean);
+  for (const name of names) {
+    const exact = catalog.find(
+      (food) =>
+        normalizeFoodName(food.nameHe) === name || normalizeFoodName(food.nameEn ?? "") === name,
+    );
+    if (exact) return exact;
+  }
+  for (const name of names) {
+    const contained = catalog.find((food) =>
+      [food.nameHe, food.nameEn ?? ""]
+        .map(normalizeFoodName)
+        .filter(Boolean)
+        .some(
+          (candidate) =>
+            candidate.length >= 3 &&
+            name.length >= 3 &&
+            (name.includes(candidate) || candidate.includes(name)),
+        ),
+    );
+    if (contained) return contained;
+  }
+  return null;
 }
 
 function normalizeFoodName(value: string): string {

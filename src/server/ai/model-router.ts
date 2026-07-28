@@ -19,10 +19,26 @@ type AiRouteResult = {
   route: "disabled" | "fast" | "fast_then_strong";
 };
 
+export type FoodServingOption = {
+  labelHe: string;
+  unit: string;
+  baseAmount: number;
+  baseUnit: "g" | "ml";
+};
+
 export type FoodCatalogEntry = {
+  id: string;
   nameHe: string;
+  nameEn: string | null;
   brand: string | null;
-  energyKcalPer100: number | null;
+  baseQuantity: number;
+  baseUnit: "g" | "ml";
+  energyKcal: number | null;
+  proteinGrams: number | null;
+  carbohydrateGrams: number | null;
+  fatGrams: number | null;
+  fiberGrams: number | null;
+  servingOptions: FoodServingOption[];
 };
 
 export async function analyzeMealImages(
@@ -158,12 +174,19 @@ function createTextPayload(
   const basePayload = createVisionPayload([], strong);
   const catalogText = catalog
     .slice(0, 80)
-    .map(
-      (food) =>
-        `${food.nameHe}${food.brand ? ` (${food.brand})` : ""}: ${
-          food.energyKcalPer100 === null ? "קלוריות לא ידועות" : `${food.energyKcalPer100} קלוריות`
-        } ל-100 גרם`,
-    )
+    .map((food) => {
+      const basis = `${food.baseQuantity} ${food.baseUnit === "ml" ? "מ״ל" : "גרם"}`;
+      const values = [
+        food.energyKcal === null ? null : `${food.energyKcal} קל׳`,
+        food.proteinGrams === null ? null : `${food.proteinGrams} חלבון`,
+        food.carbohydrateGrams === null ? null : `${food.carbohydrateGrams} פחמימות`,
+        food.fatGrams === null ? null : `${food.fatGrams} שומן`,
+        food.fiberGrams === null ? null : `${food.fiberGrams} סיבים`,
+      ]
+        .filter((value): value is string => value !== null)
+        .join(", ");
+      return `${food.nameHe}${food.brand ? ` (${food.brand})` : ""}: ${values} / ${basis}`;
+    })
     .join("\n");
   Reflect.deleteProperty(basePayload, "max_tokens");
   return {
@@ -182,6 +205,7 @@ function createTextPayload(
           "פצל רק מאכלים שהמשתמש ציין במפורש. אל תפרק מנה מוכנה למרכיבים פנימיים שלא צוינו.",
           "שמור כמויות ויחידות שנכתבו. המר לגרמים רק כאשר ההמרה סבירה וברורה.",
           "כאשר כמות חסרה, החזר estimatedQuantity ו-estimatedGrams כ-null וסמן quantityConfidence כ-low.",
+          "החזר nutrition עם energyKcal, proteinGrams, carbohydrateGrams, fatGrams, fiberGrams עבור הכמות שזוהתה. ערך שלא ניתן להעריך סביר יהיה null.",
           "הערך טווח קלוריות שמרני. אל תנחש שמן, רוטב, תוספת, מותג או שיטת בישול שלא צוינו.",
           catalogText
             ? `מאגר מזונות זמין. העדף התאמה למאגר על פני הערכת AI כאשר השם מתאים:\n${catalogText}`
@@ -211,6 +235,7 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
         "הערך כמות ומשקל בעזרת גודל הצלחת, הסכו״ם, האריזה והפרספקטיבה. אל תמציא דיוק שאינו נתמך בתמונה.",
         "התחשב במאכלים ובמידות מנה נפוצים בישראל, אך אל תנחש מותג או מרכיב נסתר.",
         "שמן, רוטב, ציפוי ושיטת בישול יש לציין רק כאשר יש להם סימן חזותי ברור. במקרה של ספק השתמש בביטחון נמוך ובטווח קלוריות רחב.",
+        "לכל רכיב החזר nutrition עם קלוריות, חלבון, פחמימות, שומן וסיבים עבור הכמות שזוהתה. אלה ערכי fallback בלבד; השרת יעדיף את מאגר המזונות אם נמצאה התאמה.",
         strong
           ? "בצע בדיקה שנייה מכוונת: חפש רכיבים קטנים, רטבים, כפילויות בין תמונות וסתירות בין זהות, משקל וקלוריות."
           : "בצע מיפוי חזותי ראשוני זהיר לפני חישוב הכמויות.",
@@ -234,7 +259,9 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
       },
       { role: "user", content },
     ],
-    max_tokens: strong ? 3_200 : 2_700,
+    ...(strong
+      ? { max_completion_tokens: 3_200, chat_template_kwargs: { thinking: false } }
+      : { max_tokens: 2_700 }),
     temperature: 0.05,
     response_format: {
       type: "json_schema",
@@ -275,6 +302,24 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
                 },
                 plausibleCaloriesMin: { type: ["number", "null"] },
                 plausibleCaloriesMax: { type: ["number", "null"] },
+                nutrition: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    energyKcal: { type: ["number", "null"] },
+                    proteinGrams: { type: ["number", "null"] },
+                    carbohydrateGrams: { type: ["number", "null"] },
+                    fatGrams: { type: ["number", "null"] },
+                    fiberGrams: { type: ["number", "null"] },
+                  },
+                  required: [
+                    "energyKcal",
+                    "proteinGrams",
+                    "carbohydrateGrams",
+                    "fatGrams",
+                    "fiberGrams",
+                  ],
+                },
                 notes: { type: "array", items: { type: "string" } },
               },
               required: [
@@ -288,6 +333,7 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
                 "nutritionConfidence",
                 "plausibleCaloriesMin",
                 "plausibleCaloriesMax",
+                "nutrition",
               ],
             },
           },

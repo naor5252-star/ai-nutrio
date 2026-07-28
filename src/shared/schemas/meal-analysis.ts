@@ -3,6 +3,26 @@ import { CONFIDENCE_LEVELS } from "../constants/domain";
 
 const confidenceSchema = z.enum(CONFIDENCE_LEVELS);
 
+const mealNutritionSchema = z.object({
+  energyKcal: z.number().finite().nonnegative().max(20_000).nullable(),
+  proteinGrams: z.number().finite().nonnegative().max(2_000).nullable(),
+  carbohydrateGrams: z.number().finite().nonnegative().max(5_000).nullable(),
+  fatGrams: z.number().finite().nonnegative().max(2_000).nullable(),
+  fiberGrams: z.number().finite().nonnegative().max(1_000).nullable(),
+});
+
+const nutritionBasisSchema = mealNutritionSchema.extend({
+  baseQuantity: z.number().finite().positive().max(10_000),
+  baseUnit: z.enum(["g", "ml"]),
+});
+
+const servingOptionSchema = z.object({
+  labelHe: z.string().min(1).max(120),
+  unit: z.string().min(1).max(60),
+  baseAmount: z.number().finite().positive().max(10_000),
+  baseUnit: z.enum(["g", "ml"]),
+});
+
 export const mealAnalysisItemSchema = z.object({
   temporaryId: z.string().min(1).max(100),
   candidateNameHe: z.string().min(1).max(160),
@@ -16,6 +36,11 @@ export const mealAnalysisItemSchema = z.object({
   nutritionConfidence: confidenceSchema.default("low"),
   plausibleCaloriesMin: z.number().finite().nonnegative().max(20_000).nullable().default(null),
   plausibleCaloriesMax: z.number().finite().nonnegative().max(20_000).nullable().default(null),
+  nutrition: mealNutritionSchema.optional(),
+  nutritionSource: z.enum(["database", "ai_estimate"]).default("ai_estimate"),
+  matchedFoodId: z.string().uuid().nullable().optional(),
+  nutritionBasis: nutritionBasisSchema.nullable().optional(),
+  servingOptions: z.array(servingOptionSchema).max(8).optional(),
   notes: z.array(z.string().max(300)).max(8).optional(),
 });
 

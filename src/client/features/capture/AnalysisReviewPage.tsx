@@ -55,6 +55,8 @@ type ProductBasis = {
   base_unit: "g" | "ml";
 };
 
+type ServingOption = { labelHe: string; unit: string; baseAmount: number; baseUnit: "g" | "ml" };
+
 type EditableItem = {
   id: string;
   nameHe: string;
@@ -69,6 +71,8 @@ type EditableItem = {
   foodId: string | null;
   sourceType: MealSourceType;
   productBasis: ProductBasis | null;
+  servingOptions: ServingOption[];
+  servingIndex: number;
 };
 
 type JobResponse = {
@@ -106,34 +110,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
   useEffect(() => {
     if (!query.data?.result || items.length > 0) return;
     const manualEntry = query.data.result.analysisVersion === "manual-entry-v1";
-    setItems(
-      query.data.result.detectedItems.map((item) => ({
-        id: item.temporaryId,
-        nameHe: manualEntry ? "" : item.candidateNameHe,
-        amount: item.estimatedGrams?.toString() ?? "",
-        baseUnit: "g",
-        calories:
-          item.plausibleCaloriesMin !== null && item.plausibleCaloriesMax !== null
-            ? Math.round((item.plausibleCaloriesMin + item.plausibleCaloriesMax) / 2).toString()
-            : "",
-        protein: "",
-        carbs: "",
-        fat: "",
-        fiber: "",
-        confidence: manualEntry
-          ? "high"
-          : [
-                item.foodIdentityConfidence,
-                item.quantityConfidence,
-                item.nutritionConfidence,
-              ].includes("low")
-            ? "low"
-            : item.foodIdentityConfidence,
-        foodId: null,
-        sourceType: manualEntry ? "manual" : "ai_estimate",
-        productBasis: null,
-      })),
-    );
+    setItems(query.data.result.detectedItems.map((item) => createEditableItem(item, manualEntry)));
   }, [items.length, query.data?.result]);
 
   const canSave = useMemo(
@@ -161,13 +138,15 @@ export function AnalysisReviewPage(): React.JSX.Element {
             .join(", "),
           notes: null,
           items: items.map((item) => {
-            const amount = item.amount ? Number(item.amount) : 1;
+            const quantity = item.amount ? Number(item.amount) : 1;
+            const serving = selectedServing(item);
+            const totalBaseAmount = quantity * serving.baseAmount;
             return {
               foodId: item.foodId,
               nameHe: item.nameHe,
-              quantity: amount,
-              unit: item.baseUnit === "ml" ? "מ״ל" : "גרם",
-              grams: item.baseUnit === "g" && item.amount ? amount : null,
+              quantity,
+              unit: serving.unit,
+              grams: serving.baseUnit === "g" && item.amount ? totalBaseAmount : null,
               calories: item.calories ? Number(item.calories) : null,
               proteinGrams: item.protein ? Number(item.protein) : null,
               carbohydrateGrams: item.carbs ? Number(item.carbs) : null,
@@ -357,9 +336,28 @@ export function AnalysisReviewPage(): React.JSX.Element {
               onChoose={(product) => chooseProduct(index, product)}
               onChooseExternal={(candidate) => chooseExternalProduct(index, candidate)}
             />
-            <div className="quantity-pair">
+            <div className="portion-editor">
               <label>
-                <span>כמות ב{item.baseUnit === "ml" ? "מ״ל" : "גרמים"}</span>
+                <span>סוג מנה</span>
+                <select
+                  value={item.servingIndex}
+                  onChange={(event) => updateServing(index, Number(event.target.value))}
+                >
+                  {item.servingOptions.map((option, optionIndex) => (
+                    <option
+                      key={`${option.unit}-${option.baseAmount}-${optionIndex}`}
+                      value={optionIndex}
+                    >
+                      {option.labelHe}
+                      {option.baseAmount !== 1
+                        ? ` (${formatNutrient(option.baseAmount)} ${option.baseUnit === "ml" ? "מ״ל" : "גרם"})`
+                        : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>כמות</span>
                 <input
                   inputMode="decimal"
                   value={item.amount}
@@ -376,6 +374,20 @@ export function AnalysisReviewPage(): React.JSX.Element {
                   placeholder="לא ידוע"
                 />
               </label>
+            </div>
+            {item.amount && (
+              <small className="portion-equivalent">
+                ≈ {formatNutrient(baseAmountForItem(item))}{" "}
+                {selectedServing(item).baseUnit === "ml" ? "מ״ל" : "גרם"}
+                {item.productBasis ? " · הערכים מתעדכנים אוטומטית מהמאגר" : ""}
+              </small>
+            )}
+            <div
+              className={`nutrition-source-note nutrition-source-note--${item.sourceType === "database" ? "database" : "ai"}`}
+            >
+              {item.sourceType === "database"
+                ? "✓ ערכים תזונתיים מהמאגר"
+                : "✦ ערכי AI — אפשר לתקן ידנית או לבחור מוצר מהמאגר"}
             </div>
             <details>
               <summary>ערכים נוספים</summary>
@@ -436,6 +448,8 @@ export function AnalysisReviewPage(): React.JSX.Element {
                 foodId: null,
                 sourceType: "manual",
                 productBasis: null,
+                servingOptions: [baseServingOption("g")],
+                servingIndex: 0,
               },
             ])
           }
@@ -473,7 +487,26 @@ export function AnalysisReviewPage(): React.JSX.Element {
         if (itemIndex !== index) return item;
         const next = { ...item, amount: value };
         if (!item.productBasis) return next;
-        return { ...next, ...scaledNutrients(item.productBasis, value) };
+        return { ...next, ...scaledNutrients(item.productBasis, String(baseAmountForItem(next))) };
+      }),
+    );
+  }
+
+  function updateServing(index: number, servingIndex: number): void {
+    setItems((current) =>
+      current.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const total = baseAmountForItem(item);
+        const nextServing = item.servingOptions[servingIndex] ?? item.servingOptions[0];
+        if (!nextServing) return item;
+        const amount =
+          total > 0
+            ? String(Math.round((total / nextServing.baseAmount) * 100) / 100)
+            : item.amount;
+        const next = { ...item, servingIndex, baseUnit: nextServing.baseUnit, amount };
+        return next.productBasis
+          ? { ...next, ...scaledNutrients(next.productBasis, String(baseAmountForItem(next))) }
+          : next;
       }),
     );
   }
@@ -493,6 +526,8 @@ export function AnalysisReviewPage(): React.JSX.Element {
           foodId: product.id,
           sourceType: normalizeProductSource(product.source_type),
           productBasis: product,
+          servingOptions: [baseServingOption(product.base_unit)],
+          servingIndex: 0,
           confidence: "high",
           ...scaledNutrients(product, amount),
         };
@@ -527,6 +562,8 @@ export function AnalysisReviewPage(): React.JSX.Element {
           foodId: null,
           sourceType: "database",
           productBasis: basis,
+          servingOptions: [baseServingOption(candidate.baseUnit)],
+          servingIndex: 0,
           confidence: "medium",
           ...scaledNutrients(basis, amount),
         };
@@ -657,6 +694,122 @@ function SavedProductPicker(props: {
       </div>
     </details>
   );
+}
+
+function createEditableItem(
+  item: AnalysisResult["detectedItems"][number],
+  manualEntry: boolean,
+): EditableItem {
+  const basis: ProductBasis | null = item.nutritionBasis
+    ? {
+        energy_kcal: item.nutritionBasis.energyKcal,
+        protein: item.nutritionBasis.proteinGrams,
+        carbohydrate: item.nutritionBasis.carbohydrateGrams,
+        fat: item.nutritionBasis.fatGrams,
+        fiber: item.nutritionBasis.fiberGrams,
+        base_quantity: item.nutritionBasis.baseQuantity,
+        base_unit: item.nutritionBasis.baseUnit,
+      }
+    : null;
+  const baseUnit = basis?.base_unit ?? "g";
+  const servingOptions = normalizeServingOptions(item.servingOptions, baseUnit);
+  const servingIndex = findInitialServingIndex(item, servingOptions);
+  const serving = servingOptions[servingIndex] ?? servingOptions[0];
+  const amount =
+    servingIndex > 0 && item.estimatedQuantity !== null
+      ? String(item.estimatedQuantity)
+      : item.estimatedGrams !== null && serving
+        ? String(Math.round((item.estimatedGrams / serving.baseAmount) * 100) / 100)
+        : "";
+  const nutrition = item.nutrition;
+  const midpoint =
+    item.plausibleCaloriesMin !== null && item.plausibleCaloriesMax !== null
+      ? Math.round((item.plausibleCaloriesMin + item.plausibleCaloriesMax) / 2)
+      : null;
+  const value = (n: number | null | undefined) => (n === null || n === undefined ? "" : String(n));
+  return {
+    id: item.temporaryId,
+    nameHe: manualEntry ? "" : item.candidateNameHe,
+    amount,
+    baseUnit,
+    calories: value(nutrition?.energyKcal ?? midpoint),
+    protein: value(nutrition?.proteinGrams),
+    carbs: value(nutrition?.carbohydrateGrams),
+    fat: value(nutrition?.fatGrams),
+    fiber: value(nutrition?.fiberGrams),
+    confidence: manualEntry
+      ? "high"
+      : [item.foodIdentityConfidence, item.quantityConfidence, item.nutritionConfidence].includes(
+            "low",
+          )
+        ? "low"
+        : item.foodIdentityConfidence,
+    foodId: item.matchedFoodId ?? null,
+    sourceType: manualEntry
+      ? "manual"
+      : item.nutritionSource === "database"
+        ? "database"
+        : "ai_estimate",
+    productBasis: basis,
+    servingOptions,
+    servingIndex,
+  };
+}
+function normalizeServingOptions(
+  options: AnalysisResult["detectedItems"][number]["servingOptions"],
+  baseUnit: "g" | "ml",
+): ServingOption[] {
+  const base = baseServingOption(baseUnit);
+  const result = [base];
+  const seen = new Set([`${base.unit}:1`]);
+  for (const option of options ?? []) {
+    const key = `${option.unit}:${option.baseAmount}`;
+    if (!seen.has(key) && option.baseAmount > 0) {
+      seen.add(key);
+      result.push(option);
+    }
+  }
+  return result.slice(0, 8);
+}
+function baseServingOption(baseUnit: "g" | "ml"): ServingOption {
+  return {
+    labelHe: baseUnit === "ml" ? "מ״ל" : "גרמים",
+    unit: baseUnit === "ml" ? "מ״ל" : "גרם",
+    baseAmount: 1,
+    baseUnit,
+  };
+}
+function findInitialServingIndex(
+  item: AnalysisResult["detectedItems"][number],
+  options: ServingOption[],
+): number {
+  if (!item.estimatedUnit || item.estimatedQuantity === null) return 0;
+  const unit = normalizeUnit(item.estimatedUnit);
+  const index = options.findIndex(
+    (option) => normalizeUnit(option.unit) === unit || normalizeUnit(option.labelHe).includes(unit),
+  );
+  return index >= 0 ? index : 0;
+}
+function normalizeUnit(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase("he-IL")
+    .replace(/[״"'׳.,:;()-]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+function selectedServing(item: EditableItem): ServingOption {
+  return (
+    item.servingOptions[item.servingIndex] ??
+    item.servingOptions[0] ??
+    baseServingOption(item.baseUnit)
+  );
+}
+function baseAmountForItem(item: EditableItem): number {
+  const quantity = Number(item.amount);
+  return Number.isFinite(quantity) && quantity >= 0
+    ? quantity * selectedServing(item).baseAmount
+    : 0;
 }
 
 function scaledNutrients(product: ProductBasis, amountText: string): Partial<EditableItem> {
