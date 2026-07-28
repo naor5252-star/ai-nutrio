@@ -107,7 +107,8 @@ export function HomePage(): React.JSX.Element {
   const restingEnergy = todayHealth?.restingEnergyKcal ?? 0;
   const totalBurned = activeEnergy + restingEnergy;
   const calorieBalance = totalBurned - totals.calories;
-  const balanceProgress = totalBurned > 0 ? Math.min(100, (totals.calories / totalBurned) * 100) : 0;
+  const balanceProgress =
+    totalBurned > 0 ? Math.min(100, (totals.calories / totalBurned) * 100) : 0;
   const syncTime =
     todayHealth?.importedAt ?? health.data?.shortcutBridge.lastSuccessfulSyncAt ?? null;
 
@@ -213,11 +214,35 @@ export function HomePage(): React.JSX.Element {
                 />
               </div>
             </article>
-            <article className={`calorie-balance-card${calorieBalance < 0 ? " is-surplus" : ""}`}>
-              <div className="calorie-balance-card__dial" style={{ "--balance-progress": `${balanceProgress * 3.6}deg` } as React.CSSProperties}>
-                <div className="calorie-balance-card__center"><span>{calorieBalance >= 0 ? "גירעון עד כה" : "עודף עד כה"}</span><strong>{formatNumber(Math.abs(calorieBalance))}</strong><small>קלוריות</small></div>
+            <article
+              className={`calorie-balance-card${calorieBalance < 0 ? " is-surplus" : ""}`}
+            >
+              <div
+                className="calorie-balance-card__dial"
+                style={
+                  {
+                    "--balance-progress": `${balanceProgress * 3.6}deg`,
+                  } as React.CSSProperties
+                }
+              >
+                <div className="calorie-balance-card__center">
+                  <span>{calorieBalance >= 0 ? "גירעון עד כה" : "עודף עד כה"}</span>
+                  <strong>{formatNumber(Math.abs(calorieBalance))}</strong>
+                  <small>קלוריות</small>
+                </div>
               </div>
-              <div className="calorie-balance-card__details"><div><span>נשרפו</span><b>{formatNumber(totalBurned)} קל׳</b></div><div><span>נאכלו</span><b>{formatNumber(totals.calories)} קל׳</b></div><p>מאזן עדכני לפי Apple Health והארוחות שתועדו. הוא משתנה במהלך היום.</p></div>
+
+              <div className="calorie-balance-card__details">
+                <div>
+                  <span>נשרפו</span>
+                  <b>{formatNumber(totalBurned)} קל׳</b>
+                </div>
+                <div>
+                  <span>נאכלו</span>
+                  <b>{formatNumber(totals.calories)} קל׳</b>
+                </div>
+                <p>מאזן עדכני לפי Apple Health והארוחות שתועדו. הוא משתנה במהלך היום.</p>
+              </div>
             </article>
           </div>
         )}
