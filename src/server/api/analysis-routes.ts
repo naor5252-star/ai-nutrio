@@ -323,6 +323,7 @@ function manualEntryResult(): MealAnalysisResult {
         foodIdentityConfidence: "high",
         quantityConfidence: "high",
         nutritionConfidence: "high",
+        nutritionSource: "ai_estimate",
         plausibleCaloriesMin: null,
         plausibleCaloriesMax: null,
         notes: [],
