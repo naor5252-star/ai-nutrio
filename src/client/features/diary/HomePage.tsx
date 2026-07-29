@@ -214,9 +214,7 @@ export function HomePage(): React.JSX.Element {
                 />
               </div>
             </article>
-            <article
-              className={`calorie-balance-card${calorieBalance < 0 ? " is-surplus" : ""}`}
-            >
+            <article className={`calorie-balance-card${calorieBalance < 0 ? " is-surplus" : ""}`}>
               <div
                 className="calorie-balance-card__dial"
                 style={
@@ -226,9 +224,7 @@ export function HomePage(): React.JSX.Element {
                 }
               >
                 <div className="calorie-balance-card__center">
-                  <span>
-                    {calorieBalance >= 0 ? "גירעון עד כה" : "עודף עד כה"}
-                  </span>
+                  <span>{calorieBalance >= 0 ? "גירעון עד כה" : "עודף עד כה"}</span>
                   <strong>{formatNumber(Math.abs(calorieBalance))}</strong>
                   <small>קלוריות</small>
                 </div>
@@ -242,9 +238,7 @@ export function HomePage(): React.JSX.Element {
                   <span>נאכלו</span>
                   <b>{formatNumber(totals.calories)} קל׳</b>
                 </div>
-                <p>
-                  מאזן עדכני לפי Apple Health והארוחות שתועדו. הוא משתנה במהלך היום.
-                </p>
+                <p>מאזן עדכני לפי Apple Health והארוחות שתועדו. הוא משתנה במהלך היום.</p>
               </div>
             </article>
           </div>
