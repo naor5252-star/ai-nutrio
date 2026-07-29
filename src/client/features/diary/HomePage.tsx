@@ -231,7 +231,6 @@ export function HomePage(): React.JSX.Element {
                   <small>קלוריות</small>
                 </div>
               </div>
-
               <div className="calorie-balance-card__details">
                 <div>
                   <span>נשרפו</span>
