@@ -4,10 +4,11 @@ import { sumNutrients } from "../../shared/nutrition/totals";
 import type { NullableNutrients } from "../../shared/nutrition/totals";
 import type { RuntimeEnv } from "../context";
 import { localDateFromIso } from "../domain/time";
-import { nowIso } from "../repositories/db";
+import { addDaysIso, nowIso } from "../repositories/db";
 import { secureUuid } from "../security/crypto";
 
 type ManualMealInput = z.infer<typeof manualMealSchema>;
+type ManualMealUpdateInput = Omit<ManualMealInput, "clientMutationId">;
 
 export async function createManualMeal(
   env: RuntimeEnv,
@@ -118,4 +119,114 @@ export async function loadMealWithItems(
     .bind(mealId)
     .all<Record<string, unknown>>();
   return { ...meal, items: items.results };
+}
+
+
+export async function updateManualMeal(
+  env: RuntimeEnv,
+  userId: string,
+  mealId: string,
+  input: ManualMealUpdateInput,
+): Promise<{ id: string; localDate: string } | null> {
+  const previous = await loadMealWithItems(env, userId, mealId);
+  if (!previous) return null;
+
+  const user = await env.DB.prepare(
+    "SELECT timezone FROM users WHERE id = ? AND deleted_at IS NULL",
+  )
+    .bind(userId)
+    .first<{ timezone: string }>();
+  const timezone = user?.timezone ?? "Asia/Jerusalem";
+  const localDate = localDateFromIso(input.occurredAt, timezone);
+  const totals = sumNutrients(
+    input.items.map<NullableNutrients>((item) => ({
+      calories: item.calories,
+      proteinGrams: item.proteinGrams,
+      carbohydrateGrams: item.carbohydrateGrams,
+      fatGrams: item.fatGrams,
+      fiberGrams: item.fiberGrams,
+      sugarGrams: null,
+      sodiumMilligrams: null,
+    })),
+  );
+  const now = nowIso();
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(
+      "INSERT INTO meal_revisions (id, meal_id, previous_snapshot_json, new_snapshot_json, revision_source, reason, expires_at, created_at) VALUES (?, ?, ?, ?, 'user', 'edit', ?, ?)",
+    ).bind(
+      secureUuid(),
+      mealId,
+      JSON.stringify(previous),
+      JSON.stringify(input),
+      addDaysIso(7),
+      now,
+    ),
+    env.DB.prepare(
+      "DELETE FROM meal_item_nutrients WHERE meal_item_id IN (SELECT id FROM meal_items WHERE meal_id = ?)",
+    ).bind(mealId),
+    env.DB.prepare("DELETE FROM meal_items WHERE meal_id = ?").bind(mealId),
+    env.DB.prepare(
+      `UPDATE meals
+          SET occurred_at = ?, local_date = ?, category = ?, custom_category_name = ?, title = ?, notes = ?,
+              total_calories = ?, total_protein_grams = ?, total_carbohydrate_grams = ?, total_fat_grams = ?,
+              total_fiber_grams = ?, partial_nutrients_json = ?, version = version + 1, updated_by = ?, updated_at = ?
+        WHERE id = ? AND owner_user_id = ?`,
+    ).bind(
+      input.occurredAt,
+      localDate,
+      input.category,
+      input.customCategoryName ?? null,
+      input.title,
+      input.notes ?? null,
+      totals.calories,
+      totals.proteinGrams,
+      totals.carbohydrateGrams,
+      totals.fatGrams,
+      totals.fiberGrams,
+      JSON.stringify(totals.partialNutrients),
+      userId,
+      now,
+      mealId,
+      userId,
+    ),
+  ];
+
+  input.items.forEach((item, index) => {
+    const itemId = secureUuid();
+    statements.push(
+      env.DB.prepare(
+        `INSERT INTO meal_items (
+          id, meal_id, name_he, quantity, unit, grams, source_type, source_snapshot_json, sort_order, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        itemId,
+        mealId,
+        item.nameHe,
+        item.quantity,
+        item.unit,
+        item.grams,
+        item.sourceType,
+        JSON.stringify(item),
+        index,
+        now,
+      ),
+    );
+    const nutrients: Array<[string, number | null, string]> = [
+      ["energy_kcal", item.calories, "kcal"],
+      ["protein", item.proteinGrams, "g"],
+      ["carbohydrate", item.carbohydrateGrams, "g"],
+      ["fat", item.fatGrams, "g"],
+      ["fiber", item.fiberGrams, "g"],
+    ];
+    for (const [code, value, unit] of nutrients) {
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO meal_item_nutrients (id, meal_item_id, nutrient_code, value, unit, source_type, is_partial) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ).bind(secureUuid(), itemId, code, value, unit, item.sourceType, value === null ? 1 : 0),
+      );
+    }
+  });
+
+  await env.DB.batch(statements);
+  return { id: mealId, localDate };
 }

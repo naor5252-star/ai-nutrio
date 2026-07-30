@@ -49,6 +49,8 @@ export const manualMealSchema = z.object({
     .max(50),
 });
 
+export const mealUpdateSchema = manualMealSchema.omit({ clientMutationId: true });
+
 export const shoppingItemSchema = z.object({
   text: z.string().trim().min(1).max(160),
   quantity: z.number().finite().positive().max(10_000).default(1),

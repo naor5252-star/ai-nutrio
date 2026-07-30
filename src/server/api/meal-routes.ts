@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { manualMealSchema } from "../../shared/schemas/api";
+import { manualMealSchema, mealUpdateSchema } from "../../shared/schemas/api";
 import type { AppEnv } from "../context";
 import { requireAuth, requireCsrf } from "../auth/session";
 import { AppError } from "./errors";
-import { createManualMeal, loadMealWithItems } from "../services/meal-service";
+import { createManualMeal, loadMealWithItems, updateManualMeal } from "../services/meal-service";
 import { addDaysIso, nowIso } from "../repositories/db";
 import { secureUuid } from "../security/crypto";
 
@@ -51,6 +51,20 @@ mealRoutes.post("/", requireCsrf, async (context) => {
     });
   const result = await createManualMeal(context.env, context.get("user").id, input);
   return context.json(result, 201);
+});
+
+mealRoutes.patch("/:id", requireCsrf, async (context) => {
+  const input = mealUpdateSchema.parse(await context.req.json());
+  const updated = await updateManualMeal(
+    context.env,
+    context.get("user").id,
+    context.req.param("id"),
+    input,
+  );
+  if (!updated) {
+    throw new AppError({ status: 404, code: "MEAL_NOT_FOUND", messageHe: "הארוחה לא נמצאה" });
+  }
+  return context.json(updated);
 });
 
 mealRoutes.post("/:id/favorite", requireCsrf, async (context) => {

@@ -161,6 +161,34 @@ export function HomePage(): React.JSX.Element {
           </div>
         ) : (
           <div className="health-dashboard__grid">
+            <section className="remaining-orbit" aria-labelledby="remaining-title">
+              <div
+                className="remaining-orbit__dial"
+                style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}
+              >
+                <div className="remaining-orbit__center">
+                  <span id="remaining-title">נשאר להיום</span>
+                  <strong>
+                    {calorieTarget > 0 ? Math.round(remaining).toLocaleString("he-IL") : "—"}
+                  </strong>
+                  <small>קלוריות</small>
+                </div>
+              </div>
+              <div className="remaining-orbit__macros">
+                <MacroLine
+                  label="חלבון"
+                  value={totals.protein}
+                  target={targets?.effective_protein_grams ?? null}
+                />
+                <MacroLine
+                  label="פחמימות"
+                  value={totals.carbs}
+                  target={targets?.carbohydrate_grams ?? null}
+                />
+                <MacroLine label="שומן" value={totals.fat} target={targets?.fat_grams ?? null} />
+              </div>
+            </section>
+
             <article className="steps-card">
               <div
                 className={`steps-card__dial${steps >= STEP_GOAL ? " is-complete" : ""}`}
@@ -243,34 +271,6 @@ export function HomePage(): React.JSX.Element {
             </article>
           </div>
         )}
-      </section>
-
-      <section className="remaining-orbit" aria-labelledby="remaining-title">
-        <div
-          className="remaining-orbit__dial"
-          style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}
-        >
-          <div className="remaining-orbit__center">
-            <span id="remaining-title">נשאר להיום</span>
-            <strong>
-              {calorieTarget > 0 ? Math.round(remaining).toLocaleString("he-IL") : "—"}
-            </strong>
-            <small>קלוריות</small>
-          </div>
-        </div>
-        <div className="remaining-orbit__macros">
-          <MacroLine
-            label="חלבון"
-            value={totals.protein}
-            target={targets?.effective_protein_grams ?? null}
-          />
-          <MacroLine
-            label="פחמימות"
-            value={totals.carbs}
-            target={targets?.carbohydrate_grams ?? null}
-          />
-          <MacroLine label="שומן" value={totals.fat} target={targets?.fat_grams ?? null} />
-        </div>
       </section>
 
       <Link to="/add" className="camera-entry">

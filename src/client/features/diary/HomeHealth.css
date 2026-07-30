@@ -377,3 +377,108 @@
     justify-self: center;
   }
 }
+
+
+/* dashboard-three-up-v1 */
+.health-dashboard__grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.health-dashboard__grid > .remaining-orbit,
+.health-dashboard__grid > .steps-card,
+.health-dashboard__grid > .calorie-balance-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(212, 203, 187, 0.8);
+  border-radius: 20px;
+  background: var(--cream);
+}
+
+.health-dashboard__grid > .remaining-orbit {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 12px;
+  border-block: 1px solid rgba(212, 203, 187, 0.8);
+}
+
+.health-dashboard__grid > .remaining-orbit .remaining-orbit__dial,
+.health-dashboard__grid > .steps-card .steps-card__dial,
+.health-dashboard__grid > .calorie-balance-card .calorie-balance-card__dial {
+  width: min(100%, 160px);
+  justify-self: center;
+}
+
+.health-dashboard__grid > .remaining-orbit .remaining-orbit__macros,
+.health-dashboard__grid > .calorie-balance-card .calorie-balance-card__details {
+  width: 100%;
+}
+
+.health-dashboard__grid > .remaining-orbit .remaining-orbit__macros {
+  gap: 10px;
+}
+
+.health-dashboard__grid > .remaining-orbit .macro-line > div:first-child {
+  font-size: 0.68rem;
+}
+
+.health-dashboard__grid > .remaining-orbit .macro-line b {
+  font-size: 0.64rem;
+}
+
+.health-dashboard__grid > .steps-card {
+  grid-template-columns: 1fr;
+  align-items: start;
+  justify-items: center;
+}
+
+.health-dashboard__grid > .calorie-balance-card {
+  grid-column: auto;
+  grid-template-columns: 1fr;
+  align-content: start;
+  justify-items: center;
+  gap: 12px;
+}
+
+.health-dashboard__grid > .energy-card {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 460px) {
+  .health-dashboard__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .health-dashboard__grid > .remaining-orbit,
+  .health-dashboard__grid > .steps-card,
+  .health-dashboard__grid > .calorie-balance-card {
+    padding: 8px;
+    border-radius: 16px;
+  }
+
+  .health-dashboard__grid > .remaining-orbit .remaining-orbit__dial,
+  .health-dashboard__grid > .steps-card .steps-card__dial,
+  .health-dashboard__grid > .calorie-balance-card .calorie-balance-card__dial {
+    width: min(100%, 112px);
+  }
+
+  .health-dashboard__grid > .remaining-orbit .remaining-orbit__center strong,
+  .health-dashboard__grid > .steps-card .steps-card__center strong,
+  .health-dashboard__grid > .calorie-balance-card .calorie-balance-card__center strong {
+    font-size: clamp(1.15rem, 5vw, 1.65rem);
+  }
+
+  .health-dashboard__grid > .remaining-orbit .remaining-orbit__center span,
+  .health-dashboard__grid > .remaining-orbit .remaining-orbit__center small,
+  .health-dashboard__grid > .steps-card .steps-card__center span,
+  .health-dashboard__grid > .calorie-balance-card .calorie-balance-card__center span,
+  .health-dashboard__grid > .calorie-balance-card .calorie-balance-card__center small {
+    font-size: 0.58rem;
+  }
+
+  .health-dashboard__grid > .calorie-balance-card .calorie-balance-card__details p {
+    display: none;
+  }
+}
