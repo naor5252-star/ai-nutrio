@@ -378,7 +378,6 @@
   }
 }
 
-
 /* dashboard-three-up-v1 */
 .health-dashboard__grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -121,7 +121,6 @@ export async function loadMealWithItems(
   return { ...meal, items: items.results };
 }
 
-
 export async function updateManualMeal(
   env: RuntimeEnv,
   userId: string,
