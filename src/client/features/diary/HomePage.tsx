@@ -223,25 +223,6 @@ export function HomePage(): React.JSX.Element {
               </div>
             </article>
 
-            <article className="energy-card">
-              <div className="energy-card__header">
-                <div>
-                  <span>סה״כ נשרפו</span>
-                  <strong>{formatNumber(totalBurned)}</strong>
-                  <small>קלוריות</small>
-                </div>
-                <span aria-hidden="true">🔥</span>
-              </div>
-              <div className="energy-card__rows">
-                <EnergyRow className="is-active" label="קלוריות פעילות" value={activeEnergy} />
-                <EnergyRow className="is-resting" label="קלוריות מנוחה" value={restingEnergy} />
-                <EnergyRow
-                  className="is-goal"
-                  label="יעד קלוריות יומי"
-                  value={calorieTarget > 0 ? calorieTarget : null}
-                />
-              </div>
-            </article>
             <article className={`calorie-balance-card${calorieBalance < 0 ? " is-surplus" : ""}`}>
               <div
                 className="calorie-balance-card__dial"
@@ -267,6 +248,25 @@ export function HomePage(): React.JSX.Element {
                   <b>{formatNumber(totals.calories)} קל׳</b>
                 </div>
                 <p>מאזן עדכני לפי Apple Health והארוחות שתועדו. הוא משתנה במהלך היום.</p>
+              </div>
+            </article>
+            <article className="energy-card">
+              <div className="energy-card__header">
+                <div>
+                  <span>סה״כ נשרפו</span>
+                  <strong>{formatNumber(totalBurned)}</strong>
+                  <small>קלוריות</small>
+                </div>
+                <span aria-hidden="true">🔥</span>
+              </div>
+              <div className="energy-card__rows">
+                <EnergyRow className="is-active" label="קלוריות פעילות" value={activeEnergy} />
+                <EnergyRow className="is-resting" label="קלוריות מנוחה" value={restingEnergy} />
+                <EnergyRow
+                  className="is-goal"
+                  label="יעד קלוריות יומי"
+                  value={calorieTarget > 0 ? calorieTarget : null}
+                />
               </div>
             </article>
           </div>
