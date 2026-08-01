@@ -187,7 +187,7 @@ async function tryRunAiModel(
   model: string,
   input: Record<string, unknown>,
   event: string,
-): Promise<unknown | null> {
+): Promise<unknown> {
   const startedAt = Date.now();
 
   try {
