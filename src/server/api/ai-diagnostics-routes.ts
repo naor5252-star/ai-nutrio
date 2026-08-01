@@ -71,8 +71,8 @@ aiDiagnosticsRoutes.get("/", async (context) => {
     });
   }
 
-  const fast = await testModel(aiValue, context.env.AI_FAST_MODEL, false);
-  const strong = await testModel(aiValue, context.env.AI_STRONG_MODEL, true);
+  const fast = await testModel(aiValue, context.env.AI_FAST_MODEL);
+  const strong = await testModel(aiValue, context.env.AI_STRONG_MODEL);
   const ok = fast.status === "ok" && strong.status === "ok";
 
   logEvent({
@@ -107,7 +107,6 @@ aiDiagnosticsRoutes.get("/", async (context) => {
 async function testModel(
   ai: GenericAiBinding,
   model: string,
-  strong: boolean,
 ): Promise<ModelCheck> {
   const startedAt = Date.now();
 
@@ -124,12 +123,7 @@ async function testModel(
         },
       ],
       temperature: 0,
-      ...(strong
-        ? {
-            max_completion_tokens: 64,
-            chat_template_kwargs: { thinking: false },
-          }
-        : { max_tokens: 64 }),
+      max_tokens: 64,
     });
 
     return {

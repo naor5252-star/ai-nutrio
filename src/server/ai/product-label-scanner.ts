@@ -123,10 +123,7 @@ export async function scanProductLabel(options: {
           ],
         },
       ],
-      chat_template_kwargs: {
-        thinking: false,
-      },
-      max_completion_tokens: 1_200,
+      max_tokens: 1_200,
       temperature: 0,
       response_format: {
         type: "json_schema",

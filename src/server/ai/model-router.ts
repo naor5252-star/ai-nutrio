@@ -275,12 +275,7 @@ function createTextPayload(
         ].join(" "),
       },
     ],
-    ...(strong
-      ? {
-          max_completion_tokens: 2_400,
-          chat_template_kwargs: { thinking: false },
-        }
-      : { max_tokens: 1_800 }),
+    max_tokens: strong ? 2_400 : 1_800,
     temperature: 0,
   };
 }
@@ -320,9 +315,7 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
       },
       { role: "user", content },
     ],
-    ...(strong
-      ? { max_completion_tokens: 3_200, chat_template_kwargs: { thinking: false } }
-      : { max_tokens: 2_700 }),
+    max_tokens: strong ? 3_200 : 2_700,
     temperature: 0.05,
     response_format: {
       type: "json_schema",
