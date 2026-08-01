@@ -3,6 +3,7 @@ import {
   type MealAnalysisResult,
 } from "../../shared/schemas/meal-analysis";
 import type { RuntimeEnv } from "../context";
+import { logEvent } from "../services/logger";
 
 export type ImageInput = {
   contentType: string;
@@ -52,15 +53,25 @@ export async function analyzeMealImages(
     return { result: disabledResult(), model: null, route: "disabled" };
 
   const fastModel = env.AI_FAST_MODEL;
-  const fastRaw = await aiValue.run(fastModel, createVisionPayload(images, false));
-  const fastParsed = parseModelResponse(fastRaw);
+  const fastRaw = await tryRunAiModel(
+    aiValue,
+    fastModel,
+    createVisionPayload(images, false),
+    "meal_image_fast_ai_failed",
+  );
+  const fastParsed = fastRaw === null ? null : parseModelResponse(fastRaw);
   if (fastParsed && !needsEscalation(fastParsed)) {
     return { result: fastParsed, model: fastModel, route: "fast" };
   }
 
   const strongModel = env.AI_STRONG_MODEL;
-  const strongRaw = await aiValue.run(strongModel, createVisionPayload(images, true));
-  const strongParsed = parseModelResponse(strongRaw);
+  const strongRaw = await tryRunAiModel(
+    aiValue,
+    strongModel,
+    createVisionPayload(images, true),
+    "meal_image_strong_ai_failed",
+  );
+  const strongParsed = strongRaw === null ? null : parseModelResponse(strongRaw);
   if (strongParsed)
     return {
       result: strongParsed,
@@ -148,12 +159,62 @@ async function tryAnalyzeTextWithModel(
   strong: boolean,
   catalog: FoodCatalogEntry[],
 ): Promise<MealAnalysisResult | null> {
+  const startedAt = Date.now();
+
   try {
     const raw = await aiValue.run(model, createTextPayload(description, strong, catalog));
     return parseModelResponse(raw);
-  } catch {
+  } catch (error) {
+    logEvent({
+      severity: "error",
+      event: "meal_text_ai_model_failed",
+      correlationId: crypto.randomUUID(),
+      durationMs: Date.now() - startedAt,
+      outcome: error instanceof Error ? error.name : "unknown",
+      retryable: true,
+      details: {
+        model,
+        strong,
+        errorMessage: formatAiError(error),
+      },
+    });
     return null;
   }
+}
+
+async function tryRunAiModel(
+  aiValue: GenericAiBinding,
+  model: string,
+  input: Record<string, unknown>,
+  event: string,
+): Promise<unknown | null> {
+  const startedAt = Date.now();
+
+  try {
+    return await aiValue.run(model, input);
+  } catch (error) {
+    logEvent({
+      severity: "error",
+      event,
+      correlationId: crypto.randomUUID(),
+      durationMs: Date.now() - startedAt,
+      outcome: error instanceof Error ? error.name : "unknown",
+      retryable: true,
+      details: {
+        model,
+        errorMessage: formatAiError(error),
+      },
+    });
+    return null;
+  }
+}
+
+function formatAiError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`.slice(0, 1_000);
+  }
+
+  return String(error).slice(0, 1_000);
 }
 
 function normalizeTextResult(result: MealAnalysisResult): MealAnalysisResult {

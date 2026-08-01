@@ -16,6 +16,7 @@ import { exportRoutes } from "./api/export-routes";
 import { pushRoutes } from "./api/push-routes";
 import { garminRoutes } from "./api/garmin-routes";
 import { accountRoutes } from "./api/account-routes";
+import { aiDiagnosticsRoutes } from "./api/ai-diagnostics-routes";
 
 export const app = new Hono<AppEnv>({ strict: false });
 app.use("*", correlationMiddleware);
@@ -38,6 +39,7 @@ app.route("/api/v1/export", exportRoutes);
 app.route("/api/v1/push", pushRoutes);
 app.route("/api/v1/garmin", garminRoutes);
 app.route("/api/v1/account", accountRoutes);
+app.route("/api/v1/ai/diagnostics", aiDiagnosticsRoutes);
 
 app.notFound((context) =>
   context.json(
