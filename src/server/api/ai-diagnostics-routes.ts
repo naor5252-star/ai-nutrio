@@ -104,10 +104,7 @@ aiDiagnosticsRoutes.get("/", async (context) => {
   });
 });
 
-async function testModel(
-  ai: GenericAiBinding,
-  model: string,
-): Promise<ModelCheck> {
+async function testModel(ai: GenericAiBinding, model: string): Promise<ModelCheck> {
   const startedAt = Date.now();
 
   try {
