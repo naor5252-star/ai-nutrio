@@ -52,18 +52,6 @@ export async function analyzeMealImages(
   if (!isGenericAiBinding(aiValue))
     return { result: disabledResult(), model: null, route: "disabled" };
 
-  const fastModel = env.AI_FAST_MODEL;
-  const fastRaw = await tryRunAiModel(
-    aiValue,
-    fastModel,
-    createVisionPayload(images, false),
-    "meal_image_fast_ai_failed",
-  );
-  const fastParsed = fastRaw === null ? null : parseModelResponse(fastRaw);
-  if (fastParsed && !needsEscalation(fastParsed)) {
-    return { result: fastParsed, model: fastModel, route: "fast" };
-  }
-
   const strongModel = env.AI_STRONG_MODEL;
   const strongRaw = await tryRunAiModel(
     aiValue,
@@ -72,13 +60,15 @@ export async function analyzeMealImages(
     "meal_image_strong_ai_failed",
   );
   const strongParsed = strongRaw === null ? null : parseModelResponse(strongRaw);
-  if (strongParsed)
+
+  if (strongParsed) {
     return {
       result: strongParsed,
       model: strongModel,
       route: "fast_then_strong",
     };
-  if (fastParsed) return { result: fastParsed, model: fastModel, route: "fast" };
+  }
+
   return {
     result: disabledResult("המודל לא החזיר תשובה תקינה. אפשר להזין את הארוחה ידנית."),
     model: strongModel,
@@ -108,36 +98,38 @@ export async function analyzeMealText(
     };
   }
 
-  const strongModel = env.AI_STRONG_MODEL;
-  const strongParsed = await tryAnalyzeTextWithModel(
+  const fastModel = env.AI_FAST_MODEL;
+  const fastParsed = await tryAnalyzeTextWithModel(
     aiValue,
-    strongModel,
+    fastModel,
     description,
-    true,
+    false,
     catalog,
   );
-  if (strongParsed) {
+
+  if (fastParsed) {
     return {
-      result: normalizeTextResult(strongParsed),
-      model: strongModel,
-      route: "fast_then_strong",
+      result: normalizeTextResult(fastParsed),
+      model: fastModel,
+      route: "fast",
     };
   }
 
-  const fastModel = env.AI_FAST_MODEL;
-  if (fastModel !== strongModel) {
-    const fastParsed = await tryAnalyzeTextWithModel(
+  const strongModel = env.AI_STRONG_MODEL;
+  if (strongModel !== fastModel) {
+    const strongParsed = await tryAnalyzeTextWithModel(
       aiValue,
-      fastModel,
+      strongModel,
       description,
-      false,
+      true,
       catalog,
     );
-    if (fastParsed) {
+
+    if (strongParsed) {
       return {
-        result: normalizeTextResult(fastParsed),
-        model: fastModel,
-        route: "fast",
+        result: normalizeTextResult(strongParsed),
+        model: strongModel,
+        route: "fast_then_strong",
       };
     }
   }
