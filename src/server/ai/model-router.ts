@@ -475,22 +475,6 @@ function isGenericAiBinding(value: unknown): value is GenericAiBinding {
   );
 }
 
-function needsEscalation(result: MealAnalysisResult): boolean {
-  return (
-    result.overallConfidence !== "high" ||
-    result.needsAnotherImage ||
-    result.detectedItems.length !== 1 ||
-    result.detectedItems.some(
-      (item) =>
-        item.foodIdentityConfidence !== "high" ||
-        item.quantityConfidence !== "high" ||
-        item.nutritionConfidence !== "high" ||
-        item.estimatedGrams === null ||
-        item.plausibleCaloriesMin === null ||
-        item.plausibleCaloriesMax === null,
-    )
-  );
-}
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
