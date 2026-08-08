@@ -322,8 +322,7 @@ function createTextPayload(
         .join(", ");
       return `${food.nameHe}${food.brand ? ` (${food.brand})` : ""}: ${values} / ${basis}`;
     })
-    .join("
-");
+    .join("\\n");
 
   return {
     messages: [

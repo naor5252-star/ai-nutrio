@@ -37,10 +37,7 @@ jobs:
             src/server/ai/model-router.ts \
             src/client/features/capture/AnalysisReviewPage.tsx
 
-      - name: Run full CI on formatted code
-        run: npm run ci
-
-      - name: Commit formatted files and remove temporary workflow
+      - name: Commit formatting
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -51,6 +48,16 @@ jobs:
             src/server/ai/model-router.ts \
             src/client/features/capture/AnalysisReviewPage.tsx
 
+          if ! git diff --cached --quiet; then
+            git commit -m "Format simple AI vision JSON changes"
+            git push origin HEAD:main
+          fi
+
+      - name: Run full CI on formatted code
+        run: npm run ci
+
+      - name: Remove temporary workflow
+        run: |
           git rm .github/workflows/finalize-simple-vision-json-once.yml
-          git commit -m "Finalize simple AI vision JSON contract"
+          git commit -m "Remove one-time AI vision formatter"
           git push origin HEAD:main
