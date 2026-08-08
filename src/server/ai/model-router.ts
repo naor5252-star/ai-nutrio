@@ -475,7 +475,6 @@ function isGenericAiBinding(value: unknown): value is GenericAiBinding {
   );
 }
 
-
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
