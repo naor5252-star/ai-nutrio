@@ -201,7 +201,7 @@ async function runSimpleTextModel(
   model: string,
   description: string,
   eventPrefix: string,
-): Promise<{ raw: unknown | null; parsed: SimpleMealAiResult | null }> {
+): Promise<{ raw: unknown; parsed: SimpleMealAiResult | null }> {
   let raw = await tryRunAiModel(
     aiValue,
     model,
@@ -456,7 +456,7 @@ function mapSimpleMealResult(
   };
 }
 
-function attachRawAiDebug(result: MealAnalysisResult, raw: unknown | null): MealAnalysisResult {
+function attachRawAiDebug(result: MealAnalysisResult, raw: unknown): MealAnalysisResult {
   if (raw === null) return result;
   const rawAiJson = serializeRawModelOutput(raw);
   const rawAiContent = readRawModelContent(raw);
