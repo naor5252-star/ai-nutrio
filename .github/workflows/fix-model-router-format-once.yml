@@ -1,0 +1,52 @@
+name: Fix model router formatting once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-model-router-format-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format model router
+        run: npx prettier --write src/server/ai/model-router.ts
+
+      - name: Verify formatting
+        run: npx prettier --check src/server/ai/model-router.ts
+
+      - name: Commit formatted file and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add src/server/ai/model-router.ts
+          git rm .github/workflows/fix-model-router-format-once.yml
+
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+            exit 0
+          fi
+
+          git commit -m "Fix model router formatting"
+          git push origin HEAD:main
