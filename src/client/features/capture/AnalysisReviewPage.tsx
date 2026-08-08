@@ -336,6 +336,12 @@ export function AnalysisReviewPage(): React.JSX.Element {
           </div>
         </div>
       )}
+      {!isManualEntry && query.data.result?.rawAiJson && (
+        <details>
+          <summary>JSON מקורי מה-AI — ללא עיבוד</summary>
+          <pre dir="ltr">{query.data.result.rawAiJson}</pre>
+        </details>
+      )}
       {!isManualEntry && !isTextEntry && query.data.result?.needsAnotherImage && (
         <div className="uncertainty-banner">
           <strong>תמונה נוספת יכולה לעזור</strong>

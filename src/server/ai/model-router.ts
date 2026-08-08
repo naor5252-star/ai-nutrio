@@ -59,18 +59,25 @@ export async function analyzeMealImages(
     createVisionPayload(images, true),
     "meal_image_strong_ai_failed",
   );
+  const rawAiJson = strongRaw === null ? undefined : serializeRawModelOutput(strongRaw);
   const strongParsed = strongRaw === null ? null : parseModelResponse(strongRaw);
 
   if (strongParsed) {
     return {
-      result: strongParsed,
+      result: {
+        ...strongParsed,
+        rawAiJson,
+      },
       model: strongModel,
       route: "fast_then_strong",
     };
   }
 
   return {
-    result: disabledResult("המודל לא החזיר תשובה תקינה. אפשר להזין את הארוחה ידנית."),
+    result: {
+      ...disabledResult("המודל לא החזיר תשובה תקינה. אפשר להזין את הארוחה ידנית."),
+      ...(rawAiJson ? { rawAiJson } : {}),
+    },
     model: strongModel,
     route: "fast_then_strong",
   };
@@ -193,6 +200,19 @@ async function tryRunAiModel(
     });
     return null;
   }
+}
+
+function serializeRawModelOutput(raw: unknown): string {
+  if (typeof raw === "object" && raw !== null && Reflect.has(raw, "response")) {
+    return serializeUnknown(readUnknownField(raw, "response"));
+  }
+
+  return serializeUnknown(raw);
+}
+
+function serializeUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2) ?? String(value);
 }
 
 function formatAiError(error: unknown): string {

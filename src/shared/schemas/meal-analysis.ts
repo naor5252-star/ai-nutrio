@@ -47,6 +47,7 @@ export const mealAnalysisItemSchema = z.object({
 export const mealAnalysisResultSchema = z.object({
   analysisVersion: z.string().min(1).max(50),
   suggestedTitleHe: z.string().trim().min(1).max(160).optional(),
+  rawAiJson: z.string().max(100_000).optional(),
   detectedItems: z.array(mealAnalysisItemSchema).min(1).max(30),
   overallConfidence: confidenceSchema,
   clarificationQuestions: z

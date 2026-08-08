@@ -62,6 +62,7 @@ export type AnalysisItem = {
 export type AnalysisResult = {
   analysisVersion: string;
   suggestedTitleHe?: string;
+  rawAiJson?: string;
   detectedItems: AnalysisItem[];
   overallConfidence: "high" | "medium" | "low";
   needsAnotherImage: boolean;
