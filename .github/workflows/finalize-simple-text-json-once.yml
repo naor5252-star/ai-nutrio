@@ -53,3 +53,5 @@ jobs:
 
           git commit -m "Finalize direct AI text meal analysis"
           git push origin HEAD:main
+
+# retrigger after lint-type fix
