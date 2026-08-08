@@ -99,13 +99,7 @@ export async function analyzeMealText(
   }
 
   const fastModel = env.AI_FAST_MODEL;
-  const fastParsed = await tryAnalyzeTextWithModel(
-    aiValue,
-    fastModel,
-    description,
-    false,
-    catalog,
-  );
+  const fastParsed = await tryAnalyzeTextWithModel(aiValue, fastModel, description, false, catalog);
 
   if (fastParsed) {
     return {
