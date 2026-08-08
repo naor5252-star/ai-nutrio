@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  mealAnalysisResultSchema,
-  type MealAnalysisResult,
-} from "../../shared/schemas/meal-analysis";
+import type { MealAnalysisResult } from "../../shared/schemas/meal-analysis";
 import type { RuntimeEnv } from "../context";
 import { logEvent } from "../services/logger";
 
@@ -15,7 +12,7 @@ type GenericAiBinding = {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 };
 
-const visionAiResultSchema = z.object({
+const simpleMealAiResultSchema = z.object({
   suggestedTitleHe: z.string().trim().min(1).max(160),
   totals: z.object({
     calories: z.number().finite().nonnegative().max(20_000),
@@ -42,34 +39,12 @@ const visionAiResultSchema = z.object({
     .max(20),
 });
 
-type VisionAiResult = z.infer<typeof visionAiResultSchema>;
+type SimpleMealAiResult = z.infer<typeof simpleMealAiResultSchema>;
 
 type AiRouteResult = {
   result: MealAnalysisResult;
   model: string | null;
   route: "disabled" | "fast" | "fast_then_strong";
-};
-
-export type FoodServingOption = {
-  labelHe: string;
-  unit: string;
-  baseAmount: number;
-  baseUnit: "g" | "ml";
-};
-
-export type FoodCatalogEntry = {
-  id: string;
-  nameHe: string;
-  nameEn: string | null;
-  brand: string | null;
-  baseQuantity: number;
-  baseUnit: "g" | "ml";
-  energyKcal: number | null;
-  proteinGrams: number | null;
-  carbohydrateGrams: number | null;
-  fatGrams: number | null;
-  fiberGrams: number | null;
-  servingOptions: FoodServingOption[];
 };
 
 export async function analyzeMealImages(
@@ -89,7 +64,7 @@ export async function analyzeMealImages(
     createVisionPayload(images, false),
     "meal_image_strong_ai_failed",
   );
-  let strongParsed = strongRaw === null ? null : parseVisionModelResponse(strongRaw);
+  let strongParsed = strongRaw === null ? null : parseSimpleMealModelResponse(strongRaw);
 
   if (!strongParsed && strongRaw !== null && readFinishReason(strongRaw) === "length") {
     const retryRaw = await tryRunAiModel(
@@ -100,7 +75,7 @@ export async function analyzeMealImages(
     );
     if (retryRaw !== null) {
       strongRaw = retryRaw;
-      strongParsed = parseVisionModelResponse(retryRaw);
+      strongParsed = parseSimpleMealModelResponse(retryRaw);
     }
   }
 
@@ -110,7 +85,13 @@ export async function analyzeMealImages(
 
   if (strongParsed) {
     return {
-      result: mapVisionResult(strongParsed, rawAiJson, rawAiContent, rawAiFinishReason),
+      result: mapSimpleMealResult(
+        strongParsed,
+        "image",
+        rawAiJson,
+        rawAiContent,
+        rawAiFinishReason,
+      ),
       model: strongModel,
       route: "fast_then_strong",
     };
@@ -131,7 +112,6 @@ export async function analyzeMealImages(
 export async function analyzeMealText(
   env: RuntimeEnv,
   description: string,
-  catalog: FoodCatalogEntry[] = [],
 ): Promise<AiRouteResult> {
   if (env.AI_ENABLED !== "true") {
     return {
@@ -151,11 +131,17 @@ export async function analyzeMealText(
   }
 
   const fastModel = env.AI_FAST_MODEL;
-  const fastParsed = await tryAnalyzeTextWithModel(aiValue, fastModel, description, false, catalog);
+  const fastAttempt = await runSimpleTextModel(aiValue, fastModel, description, "meal_text_fast_ai");
 
-  if (fastParsed) {
+  if (fastAttempt.parsed) {
     return {
-      result: normalizeTextResult(fastParsed),
+      result: mapSimpleMealResult(
+        fastAttempt.parsed,
+        "text",
+        serializeRawModelOutput(fastAttempt.raw),
+        readRawModelContent(fastAttempt.raw),
+        readFinishReason(fastAttempt.raw),
+      ),
       model: fastModel,
       route: "fast",
     };
@@ -163,61 +149,81 @@ export async function analyzeMealText(
 
   const strongModel = env.AI_STRONG_MODEL;
   if (strongModel !== fastModel) {
-    const strongParsed = await tryAnalyzeTextWithModel(
+    const strongAttempt = await runSimpleTextModel(
       aiValue,
       strongModel,
       description,
-      true,
-      catalog,
+      "meal_text_strong_ai",
     );
 
-    if (strongParsed) {
+    if (strongAttempt.parsed) {
       return {
-        result: normalizeTextResult(strongParsed),
+        result: mapSimpleMealResult(
+          strongAttempt.parsed,
+          "text",
+          serializeRawModelOutput(strongAttempt.raw),
+          readRawModelContent(strongAttempt.raw),
+          readFinishReason(strongAttempt.raw),
+        ),
         model: strongModel,
         route: "fast_then_strong",
       };
     }
+
+    return {
+      result: attachRawAiDebug(
+        fallbackTextResult(
+          description,
+          "ה־AI החזיר תשובה שלא הצלחנו לפרש. התגובה המקורית מוצגת למטה.",
+        ),
+        strongAttempt.raw ?? fastAttempt.raw,
+      ),
+      model: strongModel,
+      route: "fast_then_strong",
+    };
   }
 
   return {
-    result: fallbackTextResult(
-      description,
-      "ה־AI לא החזיר מבנה תקין. התיאור נשמר וניתן לפצל אותו ידנית.",
+    result: attachRawAiDebug(
+      fallbackTextResult(
+        description,
+        "ה־AI החזיר תשובה שלא הצלחנו לפרש. התגובה המקורית מוצגת למטה.",
+      ),
+      fastAttempt.raw,
     ),
-    model: null,
-    route: "disabled",
+    model: fastModel,
+    route: "fast",
   };
 }
 
-async function tryAnalyzeTextWithModel(
+async function runSimpleTextModel(
   aiValue: GenericAiBinding,
   model: string,
   description: string,
-  strong: boolean,
-  catalog: FoodCatalogEntry[],
-): Promise<MealAnalysisResult | null> {
-  const startedAt = Date.now();
+  eventPrefix: string,
+): Promise<{ raw: unknown | null; parsed: SimpleMealAiResult | null }> {
+  let raw = await tryRunAiModel(
+    aiValue,
+    model,
+    createTextPayload(description, false),
+    `${eventPrefix}_failed`,
+  );
+  let parsed = raw === null ? null : parseSimpleMealModelResponse(raw);
 
-  try {
-    const raw = await aiValue.run(model, createTextPayload(description, strong, catalog));
-    return parseModelResponse(raw);
-  } catch (error) {
-    logEvent({
-      severity: "error",
-      event: "meal_text_ai_model_failed",
-      correlationId: crypto.randomUUID(),
-      durationMs: Date.now() - startedAt,
-      outcome: error instanceof Error ? error.name : "unknown",
-      retryable: true,
-      details: {
-        model,
-        strong,
-        errorMessage: formatAiError(error),
-      },
-    });
-    return null;
+  if (!parsed && raw !== null && readFinishReason(raw) === "length") {
+    const retryRaw = await tryRunAiModel(
+      aiValue,
+      model,
+      createTextPayload(description, true),
+      `${eventPrefix}_retry_failed`,
+    );
+    if (retryRaw !== null) {
+      raw = retryRaw;
+      parsed = parseSimpleMealModelResponse(retryRaw);
+    }
   }
+
+  return { raw, parsed };
 }
 
 async function tryRunAiModel(
@@ -292,65 +298,42 @@ function formatAiError(error: unknown): string {
   return String(error).slice(0, 1_000);
 }
 
-function normalizeTextResult(result: MealAnalysisResult): MealAnalysisResult {
-  const normalized = {
-    ...result,
-    analysisVersion: "meal-text-v2",
-    needsAnotherImage: false,
-  };
-  delete normalized.anotherImageReasonHe;
-  return normalized;
-}
-
 function createTextPayload(
   description: string,
-  strong: boolean,
-  catalog: FoodCatalogEntry[],
+  retryAfterTruncation: boolean,
 ): Record<string, unknown> {
-  const catalogText = catalog
-    .slice(0, 80)
-    .map((food) => {
-      const basis = `${food.baseQuantity} ${food.baseUnit === "ml" ? "מ״ל" : "גרם"}`;
-      const values = [
-        food.energyKcal === null ? null : `${food.energyKcal} קל׳`,
-        food.proteinGrams === null ? null : `${food.proteinGrams} חלבון`,
-        food.carbohydrateGrams === null ? null : `${food.carbohydrateGrams} פחמימות`,
-        food.fatGrams === null ? null : `${food.fatGrams} שומן`,
-        food.fiberGrams === null ? null : `${food.fiberGrams} סיבים`,
-      ]
-        .filter((value): value is string => value !== null)
-        .join(", ");
-      return `${food.nameHe}${food.brand ? ` (${food.brand})` : ""}: ${values} / ${basis}`;
-    })
-    .join("\\n");
-
   return {
     messages: [
       {
         role: "system",
         content:
-          "You are a cautious nutrition meal-log parser. Convert only food explicitly stated by the user into structured meal components. Return Hebrew food names and JSON matching the requested schema. Never diagnose.",
+          "You analyze written meal descriptions for nutrition logging. Your final answer must be only the requested compact JSON object, with Hebrew food names and no explanation.",
       },
       {
         role: "user",
         content: [
-          'הפוך את תיאור הארוחה הבא לרכיבים נפרדים: "' + description + '".',
-          'הגדר analysisVersion כ-"meal-text-v2" ואת needsAnotherImage כ-false.',
-          "החזר suggestedTitleHe ככותרת קצרה וטבעית בעברית עבור הארוחה.",
-          "פצל רק מאכלים שהמשתמש ציין במפורש. אל תפרק מנה מוכנה למרכיבים פנימיים שלא צוינו.",
-          "שמור כמויות ויחידות שנכתבו. המר לגרמים רק כאשר ההמרה סבירה וברורה.",
-          "כאשר כמות חסרה, החזר estimatedQuantity ו-estimatedGrams כ-null וסמן quantityConfidence כ-low.",
-          "החזר nutrition עם energyKcal, proteinGrams, carbohydrateGrams, fatGrams, fiberGrams עבור הכמות שזוהתה. ערך שלא ניתן להעריך סביר יהיה null.",
-          "הערך טווח קלוריות שמרני. אל תנחש שמן, רוטב, תוספת, מותג או שיטת בישול שלא צוינו.",
-          catalogText
-            ? `מאגר מזונות זמין. העדף התאמה למאגר על פני הערכת AI כאשר השם מתאים:
-${catalogText}`
-            : "לא הועבר מאגר מזונות זמין.",
-          "החזר JSON בלבד לפי הסכמה.",
+          `נתח את תיאור הארוחה הבא: "${description}".`,
+          "אל תציג הסבר, reasoning, markdown או code fences בתשובה הסופית.",
+          "החזר רק אובייקט JSON קומפקטי אחד.",
+          'המבנה חייב להיות בדיוק: {"suggestedTitleHe":"כותרת קצרה בעברית","totals":{"calories":123,"protein":12,"carbohydrates":20,"fat":5,"fiber":3},"items":[{"name":"שם המאכל בעברית","grams":123,"nutrition":{"calories":123,"protein":12,"carbohydrates":20,"fat":5,"fiber":3}}]}.',
+          "suggestedTitleHe צריך לתאר בקצרה את הארוחה כולה.",
+          "totals חייב להיות סכום הערכים של כל הפריטים בארוחה.",
+          "כלול רק מאכלים ומשקאות שהמשתמש כתב במפורש. אל תמציא פריטים שלא צוינו.",
+          "אם המשתמש כתב כמות, משקל או יחידה — השתמש בהם.",
+          "אם המשתמש לא כתב משקל, בצע best-effort estimate סביר לפי גודל מנה מקובל בישראל והחזר grams כמספר.",
+          "לכל פריט החזר ערכים תזונתיים עבור כל הכמות שנאכלה — לא ל-100 גרם.",
+          "החזר best-effort עבור קלוריות, חלבון, פחמימות, שומן וסיבים. אל תחזיר null.",
+          "במנה מורכבת שהמשתמש כתב כשם מנה אחד, שמור אותה כפריט אחד אלא אם המשתמש פירט את הרכיבים בנפרד.",
+          "אין להשתמש במאגר המזונות של האפליקציה ואין צורך להתאים למוצר קיים.",
+          retryAfterTruncation
+            ? "זו בקשה חוזרת אחרי תשובה שנקטעה: היה קצר במיוחד והחזר מיד את ה-JSON בלבד."
+            : "בצע את החישוב פנימית ואז החזר מיד את ה-JSON בלבד.",
         ].join(" "),
       },
     ],
-    max_completion_tokens: strong ? 2_400 : 1_800,
+    response_format: { type: "json_object" },
+    reasoning_effort: "low",
+    max_completion_tokens: retryAfterTruncation ? 3_000 : 1_800,
     temperature: 0,
   };
 }
@@ -408,7 +391,7 @@ function createVisionPayload(
   };
 }
 
-function parseVisionModelResponse(raw: unknown): VisionAiResult | null {
+function parseSimpleMealModelResponse(raw: unknown): SimpleMealAiResult | null {
   const response = readResponseField(raw);
   if (response === null) return null;
 
@@ -421,12 +404,13 @@ function parseVisionModelResponse(raw: unknown): VisionAiResult | null {
     }
   }
 
-  const parsed = visionAiResultSchema.safeParse(candidate);
+  const parsed = simpleMealAiResultSchema.safeParse(candidate);
   return parsed.success ? parsed.data : null;
 }
 
-function mapVisionResult(
-  result: VisionAiResult,
+function mapSimpleMealResult(
+  result: SimpleMealAiResult,
+  source: "image" | "text",
   rawAiJson: string | undefined,
   rawAiContent: string | undefined,
   rawAiFinishReason: string | undefined,
@@ -452,12 +436,16 @@ function mapVisionResult(
         fiberGrams: item.nutrition.fiber,
       },
       nutritionSource: "ai_estimate" as const,
-      notes: ["הערכה ישירה מתמונת הארוחה באמצעות AI."],
+      notes: [
+        source === "image"
+          ? "הערכה ישירה מתמונת הארוחה באמצעות AI."
+          : "הערכה ישירה מתיאור הארוחה באמצעות AI.",
+      ],
     };
   });
 
   return {
-    analysisVersion: "meal-image-ai-simple-v1",
+    analysisVersion: source === "image" ? "meal-image-ai-simple-v1" : "meal-text-ai-simple-v1",
     suggestedTitleHe: result.suggestedTitleHe,
     detectedItems,
     overallConfidence: "medium",
@@ -468,19 +456,17 @@ function mapVisionResult(
   };
 }
 
-function parseModelResponse(raw: unknown): MealAnalysisResult | null {
-  const response = readResponseField(raw);
-  if (response === null) return null;
-  let candidate: unknown = response;
-  if (typeof response === "string") {
-    try {
-      candidate = JSON.parse(response);
-    } catch {
-      return null;
-    }
-  }
-  const parsed = mealAnalysisResultSchema.safeParse(candidate);
-  return parsed.success ? parsed.data : null;
+function attachRawAiDebug(result: MealAnalysisResult, raw: unknown | null): MealAnalysisResult {
+  if (raw === null) return result;
+  const rawAiJson = serializeRawModelOutput(raw);
+  const rawAiContent = readRawModelContent(raw);
+  const rawAiFinishReason = readFinishReason(raw);
+  return {
+    ...result,
+    ...(rawAiJson ? { rawAiJson } : {}),
+    ...(rawAiContent ? { rawAiContent } : {}),
+    ...(rawAiFinishReason ? { rawAiFinishReason } : {}),
+  };
 }
 
 function readResponseField(raw: unknown): unknown {
