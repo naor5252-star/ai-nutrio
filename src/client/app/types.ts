@@ -61,6 +61,7 @@ export type AnalysisItem = {
 
 export type AnalysisResult = {
   analysisVersion: string;
+  suggestedTitleHe?: string;
   detectedItems: AnalysisItem[];
   overallConfidence: "high" | "medium" | "low";
   needsAnotherImage: boolean;

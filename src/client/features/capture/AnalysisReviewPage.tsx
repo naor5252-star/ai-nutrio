@@ -94,6 +94,7 @@ export function AnalysisReviewPage(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [items, setItems] = useState<EditableItem[]>([]);
+  const [mealTitle, setMealTitle] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const query = useQuery({
     queryKey: ["analysis", jobId],
@@ -110,8 +111,32 @@ export function AnalysisReviewPage(): React.JSX.Element {
   useEffect(() => {
     if (!query.data?.result || items.length > 0) return;
     const manualEntry = query.data.result.analysisVersion === "manual-entry-v1";
-    setItems(query.data.result.detectedItems.map((item) => createEditableItem(item, manualEntry)));
+    const editableItems = query.data.result.detectedItems.map((item) =>
+      createEditableItem(item, manualEntry),
+    );
+    setItems(editableItems);
+    setMealTitle(
+      query.data.result.suggestedTitleHe?.trim() ||
+        editableItems
+          .map((item) => item.nameHe)
+          .slice(0, 3)
+          .join(", "),
+    );
   }, [items.length, query.data?.result]);
+
+  const mealTotals = useMemo(
+    () =>
+      items.reduce(
+        (total, item) => ({
+          calories: total.calories + numericValue(item.calories),
+          protein: total.protein + numericValue(item.protein),
+          carbs: total.carbs + numericValue(item.carbs),
+          fat: total.fat + numericValue(item.fat),
+        }),
+        { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      ),
+    [items],
+  );
 
   const canSave = useMemo(
     () =>
@@ -132,10 +157,12 @@ export function AnalysisReviewPage(): React.JSX.Element {
           occurredAt: new Date().toISOString(),
           category: suggestedCategory(),
           customCategoryName: null,
-          title: items
-            .map((item) => item.nameHe)
-            .slice(0, 3)
-            .join(", "),
+          title:
+            mealTitle.trim() ||
+            items
+              .map((item) => item.nameHe)
+              .slice(0, 3)
+              .join(", "),
           notes: null,
           items: items.map((item) => {
             const quantity = item.amount ? Number(item.amount) : 1;
@@ -257,9 +284,37 @@ export function AnalysisReviewPage(): React.JSX.Element {
         <p>
           {isManualEntry
             ? "חפש קודם במוצרים שלך. אם אין התאמה, נחפש אוטומטית במאגר הישראלי והבינלאומי. אפשר גם להקליד מוצר חדש."
-            : "אפשר לתקן ידנית, או לקשר כל רכיב למוצר ששמרת בעבר."}
+            : isTextEntry
+              ? "אפשר לתקן ידנית, או לקשר כל רכיב למוצר ששמרת בעבר."
+              : "הזיהוי והערכים התזונתיים הגיעו ישירות מה-AI. המאגר לא משנה אותם אוטומטית; אפשר לבחור מוצר ידנית רק אם תרצה."}
         </p>
       </section>
+      {!isManualEntry && (
+        <label>
+          <span>כותרת הארוחה</span>
+          <input
+            value={mealTitle}
+            onChange={(event) => setMealTitle(event.target.value)}
+            placeholder="למשל: חביתה, סלט ולחם"
+          />
+        </label>
+      )}
+      {!isManualEntry && !isTextEntry && items.length > 0 && (
+        <div className="text-analysis-result" role="status">
+          <span aria-hidden="true">✦</span>
+          <div>
+            <strong>{mealTitle || "ארוחה שזוהתה מהתמונה"}</strong>
+            <p>
+              {formatNutrient(mealTotals.calories)} קל׳ · חלבון{" "}
+              {formatNutrient(mealTotals.protein)} ג׳ · פחמימות{" "}
+              {formatNutrient(mealTotals.carbs)} ג׳ · שומן {formatNutrient(mealTotals.fat)} ג׳
+            </p>
+            <small>
+              הערכים הוערכו ישירות מהתמונה באמצעות AI, ללא התאמה אוטומטית למאגר המזונות.
+            </small>
+          </div>
+        </div>
+      )}
       {isTextEntry && (
         <div
           className={`text-analysis-result${textAnalysisFallback ? " text-analysis-result--fallback" : ""}`}
@@ -834,6 +889,11 @@ function scaleValue(value: number | null, factor: number): string {
 
 function normalizeProductSource(source: MealSourceType): MealSourceType {
   return source === "database" || source === "label" ? source : "manual";
+}
+
+function numericValue(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function numericOrBlank(value: string): boolean {

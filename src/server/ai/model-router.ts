@@ -249,6 +249,7 @@ function createTextPayload(
         content: [
           'הפוך את תיאור הארוחה הבא לרכיבים נפרדים: "' + description + '".',
           'הגדר analysisVersion כ-"meal-text-v2" ואת needsAnotherImage כ-false.',
+          "החזר suggestedTitleHe ככותרת קצרה וטבעית בעברית עבור הארוחה.",
           "פצל רק מאכלים שהמשתמש ציין במפורש. אל תפרק מנה מוכנה למרכיבים פנימיים שלא צוינו.",
           "שמור כמויות ויחידות שנכתבו. המר לגרמים רק כאשר ההמרה סבירה וברורה.",
           "כאשר כמות חסרה, החזר estimatedQuantity ו-estimatedGrams כ-null וסמן quantityConfidence כ-low.",
@@ -272,12 +273,13 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
       type: "text",
       text: [
         "נתח את כל התמונות כארוחה אחת והחזר JSON בלבד לפי הסכמה.",
+        "החזר suggestedTitleHe: כותרת קצרה וטבעית בעברית שמתארת את הארוחה כולה, למשל 'יוגורט עם גרנולה ופירות'.",
         "השתמש בכל הזוויות, אך אל תספור את אותו רכיב יותר מפעם אחת.",
         "זהה כל רכיב אכיל שנראה בתמונה בנפרד. במנה מורכבת הפרד רק רכיבים שניתן להבחין בהם חזותית; אחרת השאר אותה כמנה אחת.",
         "הערך כמות ומשקל בעזרת גודל הצלחת, הסכו״ם, האריזה והפרספקטיבה. אל תמציא דיוק שאינו נתמך בתמונה.",
         "התחשב במאכלים ובמידות מנה נפוצים בישראל, אך אל תנחש מותג או מרכיב נסתר.",
         "שמן, רוטב, ציפוי ושיטת בישול יש לציין רק כאשר יש להם סימן חזותי ברור. במקרה של ספק השתמש בביטחון נמוך ובטווח קלוריות רחב.",
-        "לכל רכיב החזר nutrition עם קלוריות, חלבון, פחמימות, שומן וסיבים עבור הכמות שזוהתה. אלה ערכי fallback בלבד; השרת יעדיף את מאגר המזונות אם נמצאה התאמה.",
+        "לכל רכיב החזר nutrition עם קלוריות, חלבון, פחמימות, שומן וסיבים עבור הכמות שזוהתה. אלו ערכי ה-AI הסופיים לניתוח התמונה; אין מאגר מזונות שיחליף אותם אוטומטית.",
         strong
           ? "בצע בדיקה שנייה מכוונת: חפש רכיבים קטנים, רטבים, כפילויות בין תמונות וסתירות בין זהות, משקל וקלוריות."
           : "בצע מיפוי חזותי ראשוני זהיר לפני חישוב הכמויות.",
@@ -303,102 +305,6 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
     ],
     max_tokens: strong ? 3_200 : 2_700,
     temperature: 0.05,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          analysisVersion: { type: "string" },
-          detectedItems: {
-            type: "array",
-            minItems: 1,
-            maxItems: 30,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                temporaryId: { type: "string" },
-                candidateNameHe: { type: "string" },
-                candidateNameEn: { type: "string" },
-                alternativeCandidates: {
-                  type: "array",
-                  items: { type: "string" },
-                },
-                estimatedQuantity: { type: ["number", "null"] },
-                estimatedUnit: { type: ["string", "null"] },
-                estimatedGrams: { type: ["number", "null"] },
-                foodIdentityConfidence: {
-                  type: "string",
-                  enum: ["high", "medium", "low"],
-                },
-                quantityConfidence: {
-                  type: "string",
-                  enum: ["high", "medium", "low"],
-                },
-                nutritionConfidence: {
-                  type: "string",
-                  enum: ["high", "medium", "low"],
-                },
-                plausibleCaloriesMin: { type: ["number", "null"] },
-                plausibleCaloriesMax: { type: ["number", "null"] },
-                nutrition: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    energyKcal: { type: ["number", "null"] },
-                    proteinGrams: { type: ["number", "null"] },
-                    carbohydrateGrams: { type: ["number", "null"] },
-                    fatGrams: { type: ["number", "null"] },
-                    fiberGrams: { type: ["number", "null"] },
-                  },
-                  required: [
-                    "energyKcal",
-                    "proteinGrams",
-                    "carbohydrateGrams",
-                    "fatGrams",
-                    "fiberGrams",
-                  ],
-                },
-                notes: { type: "array", items: { type: "string" } },
-              },
-              required: [
-                "temporaryId",
-                "candidateNameHe",
-                "estimatedQuantity",
-                "estimatedUnit",
-                "estimatedGrams",
-                "foodIdentityConfidence",
-                "quantityConfidence",
-                "nutritionConfidence",
-                "plausibleCaloriesMin",
-                "plausibleCaloriesMax",
-                "nutrition",
-              ],
-            },
-          },
-          overallConfidence: {
-            type: "string",
-            enum: ["high", "medium", "low"],
-          },
-          clarificationQuestions: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                questionId: { type: "string" },
-                questionHe: { type: "string" },
-                answerOptions: { type: "array", items: { type: "string" } },
-              },
-              required: ["questionId", "questionHe"],
-            },
-          },
-          needsAnotherImage: { type: "boolean" },
-          anotherImageReasonHe: { type: "string" },
-        },
-        required: ["analysisVersion", "detectedItems", "overallConfidence", "needsAnotherImage"],
-      },
-    },
   };
 }
 

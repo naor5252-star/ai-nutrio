@@ -48,9 +48,11 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
         },
       );
 
-      const catalog = await step.do("load food catalog for meal analysis", async () =>
-        loadFoodCatalog(this.env, params.userId),
-      );
+      const catalog = mealText
+        ? await step.do("load food catalog for meal analysis", async () =>
+            loadFoodCatalog(this.env, params.userId),
+          )
+        : [];
 
       let route: Awaited<ReturnType<typeof analyzeMealImages>>;
       if (mealText) {
@@ -104,7 +106,9 @@ export class MealAnalysisWorkflow extends WorkflowEntrypoint<RuntimeEnv, Analysi
         );
       }
 
-      route = { ...route, result: enrichResultWithCatalog(route.result, catalog) };
+      if (mealText) {
+        route = { ...route, result: enrichResultWithCatalog(route.result, catalog) };
+      }
 
       await step.do(
         "persist validated result",
