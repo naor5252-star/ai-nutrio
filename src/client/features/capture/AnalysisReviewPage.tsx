@@ -305,9 +305,9 @@ export function AnalysisReviewPage(): React.JSX.Element {
           <div>
             <strong>{mealTitle || "ארוחה שזוהתה מהתמונה"}</strong>
             <p>
-              {formatNutrient(mealTotals.calories)} קל׳ · חלבון{" "}
-              {formatNutrient(mealTotals.protein)} ג׳ · פחמימות{" "}
-              {formatNutrient(mealTotals.carbs)} ג׳ · שומן {formatNutrient(mealTotals.fat)} ג׳
+              {formatNutrient(mealTotals.calories)} קל׳ · חלבון {formatNutrient(mealTotals.protein)}{" "}
+              ג׳ · פחמימות {formatNutrient(mealTotals.carbs)} ג׳ · שומן{" "}
+              {formatNutrient(mealTotals.fat)} ג׳
             </p>
             <small>
               הערכים הוערכו ישירות מהתמונה באמצעות AI, ללא התאמה אוטומטית למאגר המזונות.
