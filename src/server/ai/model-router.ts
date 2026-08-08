@@ -131,7 +131,12 @@ export async function analyzeMealText(
   }
 
   const fastModel = env.AI_FAST_MODEL;
-  const fastAttempt = await runSimpleTextModel(aiValue, fastModel, description, "meal_text_fast_ai");
+  const fastAttempt = await runSimpleTextModel(
+    aiValue,
+    fastModel,
+    description,
+    "meal_text_fast_ai",
+  );
 
   if (fastAttempt.parsed) {
     return {
