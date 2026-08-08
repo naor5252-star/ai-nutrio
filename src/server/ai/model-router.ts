@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   mealAnalysisResultSchema,
   type MealAnalysisResult,
@@ -13,6 +14,35 @@ export type ImageInput = {
 type GenericAiBinding = {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 };
+
+const visionAiResultSchema = z.object({
+  suggestedTitleHe: z.string().trim().min(1).max(160),
+  totals: z.object({
+    calories: z.number().finite().nonnegative().max(20_000),
+    protein: z.number().finite().nonnegative().max(2_000),
+    carbohydrates: z.number().finite().nonnegative().max(5_000),
+    fat: z.number().finite().nonnegative().max(2_000),
+    fiber: z.number().finite().nonnegative().max(1_000),
+  }),
+  items: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(160),
+        grams: z.number().finite().positive().max(10_000),
+        nutrition: z.object({
+          calories: z.number().finite().nonnegative().max(20_000),
+          protein: z.number().finite().nonnegative().max(2_000),
+          carbohydrates: z.number().finite().nonnegative().max(5_000),
+          fat: z.number().finite().nonnegative().max(2_000),
+          fiber: z.number().finite().nonnegative().max(1_000),
+        }),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+
+type VisionAiResult = z.infer<typeof visionAiResultSchema>;
 
 type AiRouteResult = {
   result: MealAnalysisResult;
@@ -53,21 +83,34 @@ export async function analyzeMealImages(
     return { result: disabledResult(), model: null, route: "disabled" };
 
   const strongModel = env.AI_STRONG_MODEL;
-  const strongRaw = await tryRunAiModel(
+  let strongRaw = await tryRunAiModel(
     aiValue,
     strongModel,
-    createVisionPayload(images, true),
+    createVisionPayload(images, false),
     "meal_image_strong_ai_failed",
   );
+  let strongParsed = strongRaw === null ? null : parseVisionModelResponse(strongRaw);
+
+  if (!strongParsed && strongRaw !== null && readFinishReason(strongRaw) === "length") {
+    const retryRaw = await tryRunAiModel(
+      aiValue,
+      strongModel,
+      createVisionPayload(images, true),
+      "meal_image_strong_ai_retry_failed",
+    );
+    if (retryRaw !== null) {
+      strongRaw = retryRaw;
+      strongParsed = parseVisionModelResponse(retryRaw);
+    }
+  }
+
   const rawAiJson = strongRaw === null ? undefined : serializeRawModelOutput(strongRaw);
-  const strongParsed = strongRaw === null ? null : parseModelResponse(strongRaw);
+  const rawAiContent = strongRaw === null ? undefined : readRawModelContent(strongRaw);
+  const rawAiFinishReason = strongRaw === null ? undefined : readFinishReason(strongRaw);
 
   if (strongParsed) {
     return {
-      result: {
-        ...strongParsed,
-        rawAiJson,
-      },
+      result: mapVisionResult(strongParsed, rawAiJson, rawAiContent, rawAiFinishReason),
       model: strongModel,
       route: "fast_then_strong",
     };
@@ -75,8 +118,10 @@ export async function analyzeMealImages(
 
   return {
     result: {
-      ...disabledResult("המודל לא החזיר תשובה תקינה. אפשר להזין את הארוחה ידנית."),
+      ...disabledResult("המודל החזיר תשובה שלא הצלחנו לפרש. התגובה המקורית מוצגת למטה."),
       ...(rawAiJson ? { rawAiJson } : {}),
+      ...(rawAiContent ? { rawAiContent } : {}),
+      ...(rawAiFinishReason ? { rawAiFinishReason } : {}),
     },
     model: strongModel,
     route: "fast_then_strong",
@@ -203,11 +248,35 @@ async function tryRunAiModel(
 }
 
 function serializeRawModelOutput(raw: unknown): string {
-  if (typeof raw === "object" && raw !== null && Reflect.has(raw, "response")) {
-    return serializeUnknown(readUnknownField(raw, "response"));
+  return serializeUnknown(raw);
+}
+
+function readRawModelContent(raw: unknown): string | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+
+  if (Reflect.has(raw, "response")) {
+    const response = readUnknownField(raw, "response");
+    if (typeof response === "string") return response;
   }
 
-  return serializeUnknown(raw);
+  const choices = readUnknownField(raw, "choices");
+  if (!isUnknownArray(choices) || choices.length === 0) return undefined;
+  const first = choices[0];
+  if (typeof first !== "object" || first === null) return undefined;
+  const message = readUnknownField(first, "message");
+  if (typeof message !== "object" || message === null) return undefined;
+  const content = readUnknownField(message, "content");
+  return typeof content === "string" ? content : undefined;
+}
+
+function readFinishReason(raw: unknown): string | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const choices = readUnknownField(raw, "choices");
+  if (!isUnknownArray(choices) || choices.length === 0) return undefined;
+  const first = choices[0];
+  if (typeof first !== "object" || first === null) return undefined;
+  const finishReason = readUnknownField(first, "finish_reason");
+  return typeof finishReason === "string" ? finishReason : undefined;
 }
 
 function serializeUnknown(value: unknown): string {
@@ -238,7 +307,6 @@ function createTextPayload(
   strong: boolean,
   catalog: FoodCatalogEntry[],
 ): Record<string, unknown> {
-  const basePayload = createVisionPayload([], strong);
   const catalogText = catalog
     .slice(0, 80)
     .map((food) => {
@@ -254,10 +322,10 @@ function createTextPayload(
         .join(", ");
       return `${food.nameHe}${food.brand ? ` (${food.brand})` : ""}: ${values} / ${basis}`;
     })
-    .join("\n");
-  Reflect.deleteProperty(basePayload, "max_tokens");
+    .join("
+");
+
   return {
-    ...basePayload,
     messages: [
       {
         role: "system",
@@ -276,36 +344,46 @@ function createTextPayload(
           "החזר nutrition עם energyKcal, proteinGrams, carbohydrateGrams, fatGrams, fiberGrams עבור הכמות שזוהתה. ערך שלא ניתן להעריך סביר יהיה null.",
           "הערך טווח קלוריות שמרני. אל תנחש שמן, רוטב, תוספת, מותג או שיטת בישול שלא צוינו.",
           catalogText
-            ? `מאגר מזונות זמין. העדף התאמה למאגר על פני הערכת AI כאשר השם מתאים:\n${catalogText}`
+            ? `מאגר מזונות זמין. העדף התאמה למאגר על פני הערכת AI כאשר השם מתאים:
+${catalogText}`
             : "לא הועבר מאגר מזונות זמין.",
           "החזר JSON בלבד לפי הסכמה.",
         ].join(" "),
       },
     ],
-    max_tokens: strong ? 2_400 : 1_800,
+    max_completion_tokens: strong ? 2_400 : 1_800,
     temperature: 0,
   };
 }
 
-function createVisionPayload(images: ImageInput[], strong: boolean): Record<string, unknown> {
+function createVisionPayload(
+  images: ImageInput[],
+  retryAfterTruncation: boolean,
+): Record<string, unknown> {
   const content: Array<Record<string, unknown>> = [
     {
       type: "text",
       text: [
-        "נתח את כל התמונות כארוחה אחת והחזר JSON בלבד לפי הסכמה.",
-        "החזר suggestedTitleHe: כותרת קצרה וטבעית בעברית שמתארת את הארוחה כולה, למשל 'יוגורט עם גרנולה ופירות'.",
-        "השתמש בכל הזוויות, אך אל תספור את אותו רכיב יותר מפעם אחת.",
-        "זהה כל רכיב אכיל שנראה בתמונה בנפרד. במנה מורכבת הפרד רק רכיבים שניתן להבחין בהם חזותית; אחרת השאר אותה כמנה אחת.",
-        "הערך כמות ומשקל בעזרת גודל הצלחת, הסכו״ם, האריזה והפרספקטיבה. אל תמציא דיוק שאינו נתמך בתמונה.",
-        "התחשב במאכלים ובמידות מנה נפוצים בישראל, אך אל תנחש מותג או מרכיב נסתר.",
-        "שמן, רוטב, ציפוי ושיטת בישול יש לציין רק כאשר יש להם סימן חזותי ברור. במקרה של ספק השתמש בביטחון נמוך ובטווח קלוריות רחב.",
-        "לכל רכיב החזר nutrition עם קלוריות, חלבון, פחמימות, שומן וסיבים עבור הכמות שזוהתה. אלו ערכי ה-AI הסופיים לניתוח התמונה; אין מאגר מזונות שיחליף אותם אוטומטית.",
-        strong
-          ? "בצע בדיקה שנייה מכוונת: חפש רכיבים קטנים, רטבים, כפילויות בין תמונות וסתירות בין זהות, משקל וקלוריות."
-          : "בצע מיפוי חזותי ראשוני זהיר לפני חישוב הכמויות.",
+        "נתח את כל התמונות כארוחה אחת.",
+        "אל תציג הסבר, reasoning, markdown או code fences בתשובה הסופית.",
+        "החזר רק אובייקט JSON קומפקטי אחד.",
+        'המבנה חייב להיות בדיוק: {"suggestedTitleHe":"כותרת קצרה בעברית","totals":{"calories":123,"protein":12,"carbohydrates":20,"fat":5,"fiber":3},"items":[{"name":"שם המאכל בעברית","grams":123,"nutrition":{"calories":123,"protein":12,"carbohydrates":20,"fat":5,"fiber":3}}]}.',
+        "suggestedTitleHe צריך לתאר בקצרה את הארוחה כולה.",
+        "totals חייב להיות סכום הערכים של כל הפריטים בארוחה.",
+        "לכל פריט החזר משקל מוערך בגרמים כמספר, ואת הערכים התזונתיים עבור כל הכמות שזוהתה — לא ל-100 גרם.",
+        "הערך תמיד best-effort עבור קלוריות, חלבון, פחמימות, שומן וסיבים. אל תחזיר null.",
+        "אין להשתמש במאגר מזונות של האפליקציה ואין צורך להתאים למוצר קיים.",
+        "זהה מאכלים שנראים בתמונה. אל תמציא מותג או מרכיב נסתר.",
+        "אל תספור אותו פריט פעמיים אם הוא מופיע ביותר מתמונה אחת.",
+        "במנה מורכבת, שמור אותה כפריט אחד כאשר פיצול לרכיבים ייצור ניחוש מיותר.",
+        "אם שמן או רוטב נראים בבירור, כלול אותם בהערכת הערכים; אם לא, אל תניח כמות גדולה של שמן נסתר.",
+        retryAfterTruncation
+          ? "זו בקשה חוזרת אחרי תשובה שנקטעה: היה קצר במיוחד והחזר מיד את ה-JSON בלבד."
+          : "בצע את החישוב פנימית ואז החזר מיד את ה-JSON בלבד.",
       ].join(" "),
     },
   ];
+
   for (const image of images.slice(0, 4)) {
     content.push({
       type: "image_url",
@@ -314,17 +392,80 @@ function createVisionPayload(images: ImageInput[], strong: boolean): Record<stri
       },
     });
   }
+
   return {
     messages: [
       {
         role: "system",
         content:
-          "You are a precise, conservative food-vision specialist for meal logging. Return Hebrew food names, use all image evidence, avoid double counting, and never diagnose.",
+          "You analyze meal photos for nutrition logging. Your final answer must be only the requested compact JSON object, with Hebrew food names and no explanation.",
       },
       { role: "user", content },
     ],
-    max_tokens: strong ? 3_200 : 2_700,
-    temperature: 0.05,
+    response_format: { type: "json_object" },
+    reasoning_effort: "low",
+    max_completion_tokens: retryAfterTruncation ? 6_000 : 4_000,
+    temperature: 0,
+  };
+}
+
+function parseVisionModelResponse(raw: unknown): VisionAiResult | null {
+  const response = readResponseField(raw);
+  if (response === null) return null;
+
+  let candidate: unknown = response;
+  if (typeof response === "string") {
+    try {
+      candidate = JSON.parse(stripCodeFence(response));
+    } catch {
+      return null;
+    }
+  }
+
+  const parsed = visionAiResultSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
+
+function mapVisionResult(
+  result: VisionAiResult,
+  rawAiJson: string | undefined,
+  rawAiContent: string | undefined,
+  rawAiFinishReason: string | undefined,
+): MealAnalysisResult {
+  const detectedItems = result.items.map((item) => {
+    const calories = item.nutrition.calories;
+    return {
+      temporaryId: crypto.randomUUID(),
+      candidateNameHe: item.name,
+      estimatedQuantity: item.grams,
+      estimatedUnit: "גרם",
+      estimatedGrams: item.grams,
+      foodIdentityConfidence: "medium" as const,
+      quantityConfidence: "medium" as const,
+      nutritionConfidence: "medium" as const,
+      plausibleCaloriesMin: Math.max(0, Math.round(calories * 0.8)),
+      plausibleCaloriesMax: Math.round(calories * 1.2),
+      nutrition: {
+        energyKcal: calories,
+        proteinGrams: item.nutrition.protein,
+        carbohydrateGrams: item.nutrition.carbohydrates,
+        fatGrams: item.nutrition.fat,
+        fiberGrams: item.nutrition.fiber,
+      },
+      nutritionSource: "ai_estimate" as const,
+      notes: ["הערכה ישירה מתמונת הארוחה באמצעות AI."],
+    };
+  });
+
+  return {
+    analysisVersion: "meal-image-ai-simple-v1",
+    suggestedTitleHe: result.suggestedTitleHe,
+    detectedItems,
+    overallConfidence: "medium",
+    needsAnotherImage: false,
+    ...(rawAiJson ? { rawAiJson } : {}),
+    ...(rawAiContent ? { rawAiContent } : {}),
+    ...(rawAiFinishReason ? { rawAiFinishReason } : {}),
   };
 }
 

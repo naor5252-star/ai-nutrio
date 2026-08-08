@@ -336,9 +336,21 @@ export function AnalysisReviewPage(): React.JSX.Element {
           </div>
         </div>
       )}
+      {!isManualEntry && query.data.result?.rawAiFinishReason === "length" && (
+        <div className="uncertainty-banner">
+          <strong>תשובת ה-AI נקטעה בגלל מגבלת אורך</strong>
+          <p>האפליקציה ניסתה אוטומטית פעם נוספת עם תשובה קצרה יותר.</p>
+        </div>
+      )}
+      {!isManualEntry && query.data.result?.rawAiContent && (
+        <details open>
+          <summary>התוכן המקורי שהמודל החזיר</summary>
+          <pre dir="ltr">{query.data.result.rawAiContent}</pre>
+        </details>
+      )}
       {!isManualEntry && query.data.result?.rawAiJson && (
         <details>
-          <summary>JSON מקורי מה-AI — ללא עיבוד</summary>
+          <summary>התגובה המלאה והמקורית מ-Cloudflare AI</summary>
           <pre dir="ltr">{query.data.result.rawAiJson}</pre>
         </details>
       )}
