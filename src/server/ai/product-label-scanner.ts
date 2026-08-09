@@ -36,12 +36,32 @@ const productLabelResultSchema = z.object({
   warningsHe: z.array(z.string().max(240)).max(10).catch([]),
 });
 
+const compactProductLabelAiSchema = z.object({
+  basis: z.enum(["per_100g", "per_100ml", "per_serving", "unknown"]),
+  baseQuantity: z.number().finite().positive().max(10_000).nullable(),
+  baseUnit: z.enum(["g", "ml"]),
+  servingWeight: z.number().finite().positive().max(10_000).nullable(),
+  nutrients: z.object({
+    energyKcal: nullableNutrient,
+    protein: nullableNutrient,
+    carbohydrate: nullableNutrient,
+    fat: nullableNutrient,
+    fiber: nullableNutrient,
+  }),
+  confidence: z.enum(["high", "medium", "low"]),
+  warningsHe: z.array(z.string().max(240)).max(10).catch([]),
+});
+
+type CompactProductLabelAiResult = z.infer<typeof compactProductLabelAiSchema>;
+
 export type ProductLabelResult = z.infer<typeof productLabelResultSchema>;
 
 export type ProductLabelDebug = {
   stage: "ai" | "extract" | "schema" | "validate" | "complete";
   model: string;
   rawPreview: string | null;
+  rawContent: string | null;
+  finishReason: string | null;
   candidate: unknown;
   schemaIssues: string[];
   normalized: ProductLabelResult | null;
@@ -79,6 +99,8 @@ export async function scanProductLabel(options: {
       stage,
       model: options.env.AI_STRONG_MODEL,
       rawPreview: null,
+      rawContent: null,
+      finishReason: null,
       candidate: null,
       schemaIssues: [],
       normalized: null,
@@ -87,112 +109,15 @@ export async function scanProductLabel(options: {
   }
 
   try {
-    raw = await options.env.AI.run(options.env.AI_STRONG_MODEL, {
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a meticulous nutrition-table OCR specialist. Return the requested JSON immediately, with no explanation, no analysis prose, and no chain-of-thought. Identify row labels and column headers internally, map each value to the correct row and column, and emit only the schema response. Read Hebrew, Arabic and English. Preserve the printed basis. Never infer a number that is not visible. Do not identify the product, brand, or barcode. Partial extraction is valid and preferred over failure.",
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: [
-                "קרא רק את טבלת הסימון התזונתי הנראית בתמונה.",
-                "לפני חילוץ מספרים, זהה את כותרות העמודות ואת שורות הרכיבים. טבלה עשויה להכיל 100 גרם/100 מ״ל וגם מנה/חטיף בעמודות סמוכות.",
-                "אם קיימת עמודת 100 גרם או 100 מ״ל, השתמש רק בה לערכי nutrients, הגדר baseQuantity=100 ו-baseUnit בהתאם, והחזר detectedBasis=per_100g או per_100ml.",
-                "אם אין עמודת 100 גרם/מ״ל ויש רק מנה, השתמש בערכים המודפסים למנה, הגדר detectedBasis=per_serving ושמור servingWeight אם הוא נראה. אל תנרמל בניחוש.",
-                "אנרגיה חייבת להיות kcal. אם מופיעים גם kJ וגם kcal, בחר רק kcal.",
-                "מיפוי: סך השומנים -> fat, סך הפחמימות -> carbohydrate, חלבונים -> protein, סיבים תזונתיים -> fiber.",
-                "אל תשתמש בשומן רווי במקום שומן כולל, בסוכרים במקום פחמימות, בנתרן כאנרגיה, או בכפיות סוכר כאחד מערכי nutrients.",
-                "ערך שלא ניתן לקרוא בביטחון נשאר null. תא חסר לא מפיל את כל הסריקה.",
-                "לכל nutrient החזר nutrientConfidence: high, medium, low או missing. missing חובה כאשר הערך null.",
-                "אל תנסה לזהות מוצר, מותג או ברקוד. החזר תמיד suggestedNameHe=null, brand=null, barcode=null.",
-                "החזר JSON עם suggestedNameHe, brand, barcode, baseQuantity, baseUnit, servingDescriptionHe, servingWeight, nutrients, nutrientConfidence, detectedBasis, confidence, warningsHe.",
-                "בדיקת היגיון לדוגמה בלבד: אם בעמודת 100 גרם מופיעים 408 קלוריות, 14.5 שומן, 58 פחמימות, 11.1 סיבים ו-6.2 חלבון, אלו הערכים שיש לשייך לשדות המתאימים ולא לערכי המנה שבעמודה סמוכה.",
-              ].join(" "),
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${options.contentType};base64,${arrayBufferToBase64(options.bytes)}`,
-              },
-            },
-          ],
-        },
-      ],
-      max_tokens: 1_200,
-      temperature: 0,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "product_label_scan",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              suggestedNameHe: { type: ["string", "null"] },
-              brand: { type: ["string", "null"] },
-              barcode: { type: ["string", "null"] },
-              baseQuantity: { type: "number" },
-              baseUnit: { type: "string", enum: ["g", "ml"] },
-              servingDescriptionHe: { type: ["string", "null"] },
-              servingWeight: { type: ["number", "null"] },
-              nutrients: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  energyKcal: { type: ["number", "null"] },
-                  protein: { type: ["number", "null"] },
-                  carbohydrate: { type: ["number", "null"] },
-                  fat: { type: ["number", "null"] },
-                  fiber: { type: ["number", "null"] },
-                },
-                required: ["energyKcal", "protein", "carbohydrate", "fat", "fiber"],
-              },
-              nutrientConfidence: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  energyKcal: { type: "string", enum: ["high", "medium", "low", "missing"] },
-                  protein: { type: "string", enum: ["high", "medium", "low", "missing"] },
-                  carbohydrate: { type: "string", enum: ["high", "medium", "low", "missing"] },
-                  fat: { type: "string", enum: ["high", "medium", "low", "missing"] },
-                  fiber: { type: "string", enum: ["high", "medium", "low", "missing"] },
-                },
-                required: ["energyKcal", "protein", "carbohydrate", "fat", "fiber"],
-              },
-              detectedBasis: {
-                type: "string",
-                enum: ["per_100g", "per_100ml", "per_serving", "unknown"],
-              },
-              confidence: { type: "string", enum: ["high", "medium", "low"] },
-              warningsHe: { type: "array", items: { type: "string" } },
-            },
-            required: [
-              "suggestedNameHe",
-              "brand",
-              "barcode",
-              "baseQuantity",
-              "baseUnit",
-              "servingDescriptionHe",
-              "servingWeight",
-              "nutrients",
-              "nutrientConfidence",
-              "detectedBasis",
-              "confidence",
-              "warningsHe",
-            ],
-          },
-        },
-      },
-    });
+    raw = await runProductLabelModel(options, false);
+    candidate = extractCandidate(raw);
+
+    if (candidate === null && extractFinishReason(raw) === "length") {
+      raw = await runProductLabelModel(options, true);
+      candidate = extractCandidate(raw);
+    }
 
     stage = "extract";
-    candidate = extractCandidate(raw);
     if (candidate === null) {
       const finishReason = extractFinishReason(raw);
       if (finishReason === "length") {
@@ -202,7 +127,16 @@ export async function scanProductLabel(options: {
     }
 
     stage = "schema";
-    const parsed = productLabelResultSchema.safeParse(candidate);
+    const compactParsed = compactProductLabelAiSchema.safeParse(candidate);
+    if (!compactParsed.success) {
+      schemaIssues = compactParsed.error.issues.map(
+        (issue) => `${issue.path.join(".") || "root"}: ${issue.message}`,
+      );
+      throw new Error("AI label scan did not match the compact response schema");
+    }
+
+    const mappedCandidate = mapCompactLabelResult(compactParsed.data);
+    const parsed = productLabelResultSchema.safeParse(mappedCandidate);
     if (!parsed.success) {
       schemaIssues = parsed.error.issues.map(
         (issue) => `${issue.path.join(".") || "root"}: ${issue.message}`,
@@ -222,6 +156,8 @@ export async function scanProductLabel(options: {
         stage: "complete",
         model: options.env.AI_STRONG_MODEL,
         rawPreview: previewRaw(raw),
+        rawContent: extractRawContent(raw),
+        finishReason: extractFinishReason(raw),
         candidate,
         schemaIssues,
         normalized,
@@ -234,6 +170,8 @@ export async function scanProductLabel(options: {
       stage,
       model: options.env.AI_STRONG_MODEL,
       rawPreview: previewRaw(raw),
+      rawContent: extractRawContent(raw),
+      finishReason: extractFinishReason(raw),
       candidate,
       schemaIssues,
       normalized,
@@ -261,10 +199,135 @@ function previewRaw(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   try {
     const text = typeof value === "string" ? value : JSON.stringify(value);
-    return text.slice(0, 8_000);
+    return text.slice(0, 50_000);
   } catch {
     return "[unserializable AI response]";
   }
+}
+
+async function runProductLabelModel(
+  options: {
+    env: RuntimeEnv;
+    contentType: string;
+    bytes: ArrayBuffer;
+    correlationId: string;
+  },
+  retryAfterTruncation: boolean,
+): Promise<unknown> {
+  if (!isAiBinding(options.env.AI)) throw new Error("Workers AI is not available");
+
+  return options.env.AI.run(
+    options.env.AI_STRONG_MODEL,
+    createProductLabelPayload(options.contentType, options.bytes, retryAfterTruncation),
+  );
+}
+
+function createProductLabelPayload(
+  contentType: string,
+  bytes: ArrayBuffer,
+  retryAfterTruncation: boolean,
+): Record<string, unknown> {
+  return {
+    messages: [
+      {
+        role: "system",
+        content:
+          "You read nutrition tables from product-label images. Return only one compact JSON object. Do not return prose, markdown, code fences, or explanations. Read Hebrew, Arabic and English. Never guess an unreadable number.",
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: [
+              "קרא רק את טבלת הסימון התזונתי שבתמונה.",
+              'החזר בדיוק במבנה הזה: {"basis":"per_100g","baseQuantity":100,"baseUnit":"g","servingWeight":null,"nutrients":{"energyKcal":293,"protein":9.16,"carbohydrate":54.4,"fat":4,"fiber":null},"confidence":"high","warningsHe":[]}.',
+              "basis חייב להיות אחד: per_100g, per_100ml, per_serving, unknown.",
+              "אם קיימת עמודת 100 גרם או 100 מ״ל, השתמש רק בה לערכי nutrients. עבור 100 גרם החזר baseQuantity=100 ו-baseUnit=g; עבור 100 מ״ל החזר baseQuantity=100 ו-baseUnit=ml.",
+              "אם אין 100 גרם/מ״ל ויש רק מנה, החזר basis=per_serving. שמור servingWeight אם משקל המנה נראה.",
+              "מיפוי: אנרגיה בקק״ל -> energyKcal; חלבונים -> protein; סך הפחמימות -> carbohydrate; סך השומנים -> fat; סיבים תזונתיים -> fiber.",
+              "אל תשתמש בסוכרים במקום פחמימות, בשומן רווי במקום שומן כולל, בנתרן כאנרגיה או בכפיות סוכר כאחד מחמשת ערכי nutrients.",
+              "אם ערך אינו מופיע או אינו קריא בביטחון, החזר null. עדיף null על ניחוש.",
+              "אל תזהה שם מוצר, מותג או ברקוד. אל תחזיר שדות נוספים.",
+              retryAfterTruncation
+                ? "זו בקשה חוזרת לאחר שהפלט נקטע. החזר מיד JSON קצר בלבד, ללא שום הסבר."
+                : "בצע את הקריאה פנימית והחזר מיד את ה-JSON בלבד.",
+            ].join(" "),
+          },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:${contentType};base64,${arrayBufferToBase64(bytes)}`,
+            },
+          },
+        ],
+      },
+    ],
+    reasoning_effort: "low",
+    max_completion_tokens: retryAfterTruncation ? 5_000 : 3_000,
+    temperature: 0,
+  };
+}
+
+function mapCompactLabelResult(result: CompactProductLabelAiResult): ProductLabelResult {
+  const baseQuantity =
+    result.basis === "per_100g" || result.basis === "per_100ml"
+      ? 100
+      : (result.baseQuantity ?? result.servingWeight ?? 100);
+
+  const baseUnit =
+    result.basis === "per_100g"
+      ? ("g" as const)
+      : result.basis === "per_100ml"
+        ? ("ml" as const)
+        : result.baseUnit;
+
+  const nutrientConfidence = {
+    energyKcal:
+      result.nutrients.energyKcal === null ? ("missing" as const) : result.confidence,
+    protein: result.nutrients.protein === null ? ("missing" as const) : result.confidence,
+    carbohydrate:
+      result.nutrients.carbohydrate === null ? ("missing" as const) : result.confidence,
+    fat: result.nutrients.fat === null ? ("missing" as const) : result.confidence,
+    fiber: result.nutrients.fiber === null ? ("missing" as const) : result.confidence,
+  };
+
+  return {
+    suggestedNameHe: null,
+    brand: null,
+    barcode: null,
+    baseQuantity,
+    baseUnit,
+    servingDescriptionHe: null,
+    servingWeight: result.servingWeight,
+    nutrients: result.nutrients,
+    nutrientConfidence,
+    detectedBasis: result.basis,
+    confidence: result.confidence,
+    warningsHe: result.warningsHe,
+  };
+}
+
+function extractRawContent(raw: unknown): string | null {
+  if (typeof raw === "string") return raw;
+  if (!isRecord(raw)) return null;
+
+  if (typeof raw.response === "string") return raw.response;
+
+  const choices = raw.choices;
+  if (!isUnknownArray(choices) || choices.length === 0) return null;
+  const first = choices[0];
+  if (!isRecord(first) || !isRecord(first.message)) return null;
+
+  const content = first.message.content;
+  if (typeof content === "string") return content;
+  if (!isUnknownArray(content)) return null;
+
+  const combined = content
+    .map((part) => (isRecord(part) && typeof part.text === "string" ? part.text : ""))
+    .join("");
+
+  return combined || null;
 }
 
 function normalizeLabelResult(result: ProductLabelResult): ProductLabelResult {

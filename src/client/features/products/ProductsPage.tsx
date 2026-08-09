@@ -49,6 +49,8 @@ type LabelScanDebug = {
   stage: "ai" | "extract" | "schema" | "validate" | "complete";
   model: string;
   rawPreview: string | null;
+  rawContent: string | null;
+  finishReason: string | null;
   candidate: unknown;
   schemaIssues: string[];
   normalized: LabelScan | null;
@@ -514,7 +516,7 @@ export function ProductsPage(): React.JSX.Element {
       )}
 
       {labelDebug && (
-        <details className="label-debug-panel">
+        <details className="label-debug-panel" open>
           <summary>אבחון הסריקה</summary>
           <div className="label-debug-panel__summary">
             <span>
@@ -523,6 +525,11 @@ export function ProductsPage(): React.JSX.Element {
             <span>
               מודל: <b>{labelDebug.model}</b>
             </span>
+            {labelDebug.finishReason && (
+              <span>
+                סיום: <b>{labelDebug.finishReason}</b>
+              </span>
+            )}
             {labelDebug.error && (
               <span>
                 שגיאה: <b>{labelDebug.error}</b>
@@ -548,7 +555,11 @@ export function ProductsPage(): React.JSX.Element {
             <pre>{JSON.stringify(labelDebug.normalized, null, 2)}</pre>
           </div>
           <div>
-            <strong>Raw AI response</strong>
+            <strong>התוכן המקורי שהמודל החזיר — message.content</strong>
+            <pre>{labelDebug.rawContent ?? "לא התקבל content מהמודל"}</pre>
+          </div>
+          <div>
+            <strong>התגובה המלאה והמקורית מ-Cloudflare AI</strong>
             <pre>{labelDebug.rawPreview ?? "לא התקבל פלט מהמודל"}</pre>
           </div>
         </details>
