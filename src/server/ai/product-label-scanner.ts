@@ -283,11 +283,9 @@ function mapCompactLabelResult(result: CompactProductLabelAiResult): ProductLabe
         : result.baseUnit;
 
   const nutrientConfidence = {
-    energyKcal:
-      result.nutrients.energyKcal === null ? ("missing" as const) : result.confidence,
+    energyKcal: result.nutrients.energyKcal === null ? ("missing" as const) : result.confidence,
     protein: result.nutrients.protein === null ? ("missing" as const) : result.confidence,
-    carbohydrate:
-      result.nutrients.carbohydrate === null ? ("missing" as const) : result.confidence,
+    carbohydrate: result.nutrients.carbohydrate === null ? ("missing" as const) : result.confidence,
     fat: result.nutrients.fat === null ? ("missing" as const) : result.confidence,
     fiber: result.nutrients.fiber === null ? ("missing" as const) : result.confidence,
   };
