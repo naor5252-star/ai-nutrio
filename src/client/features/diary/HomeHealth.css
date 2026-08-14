@@ -481,3 +481,318 @@
     display: none;
   }
 }
+
+
+/* health-trends-v1 */
+.trend-dashboard {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.trend-dashboard__heading,
+.trend-panel__title {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+}
+
+.trend-dashboard__heading {
+  margin-bottom: 14px;
+}
+
+.trend-dashboard__heading h2,
+.trend-panel__title h3 {
+  margin: 0;
+}
+
+.trend-dashboard__heading > small {
+  max-width: 290px;
+  color: var(--muted);
+  text-align: end;
+  line-height: 1.45;
+}
+
+.trend-dashboard__panels {
+  display: grid;
+  gap: 14px;
+}
+
+.weekly-balance-panel,
+.monthly-trend-panel {
+  padding: 16px;
+  border: 1px solid rgba(212, 203, 187, 0.8);
+  border-radius: 20px;
+  background: var(--cream);
+}
+
+.trend-panel__title > div {
+  display: grid;
+  gap: 2px;
+}
+
+.trend-panel__title span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.trend-panel__title > strong {
+  max-width: 175px;
+  text-align: end;
+  font-size: 0.82rem;
+}
+
+.trend-panel__title > strong.is-deficit {
+  color: var(--leaf);
+}
+
+.trend-panel__title > strong.is-surplus,
+.weekly-summary-grid b.is-surplus {
+  color: var(--tomato);
+}
+
+.weekly-balance-chart {
+  min-height: 190px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 18px;
+  direction: rtl;
+}
+
+.weekly-balance-day {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 20px 1fr 22px;
+  justify-items: center;
+  gap: 4px;
+}
+
+.weekly-balance-day__value {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.weekly-balance-day__plot {
+  width: 100%;
+  min-height: 130px;
+  position: relative;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.44);
+  overflow: hidden;
+}
+
+.weekly-balance-day__zero {
+  position: absolute;
+  inset-inline: 4px;
+  top: 50%;
+  height: 1px;
+  background: var(--line);
+}
+
+.weekly-balance-day__bar {
+  --balance-size: 0%;
+  width: min(22px, 58%);
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  border-radius: 8px;
+}
+
+.weekly-balance-day__bar.is-deficit {
+  bottom: 50%;
+  height: var(--balance-size);
+  background: var(--leaf);
+}
+
+.weekly-balance-day__bar.is-surplus {
+  top: 50%;
+  height: var(--balance-size);
+  background: var(--tomato);
+}
+
+.weekly-balance-day > b {
+  font-size: 0.68rem;
+}
+
+.weekly-balance-day.is-today > b {
+  color: var(--tomato);
+}
+
+.weekly-summary-grid,
+.monthly-metrics-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.weekly-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.monthly-metrics-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.weekly-summary-grid > div,
+.trend-metric {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(212, 203, 187, 0.62);
+}
+
+.weekly-summary-grid span,
+.trend-metric span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.35;
+}
+
+.weekly-summary-grid b,
+.trend-metric b {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+}
+
+.trend-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.month-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.month-trend-day {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 3px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--paper-deep);
+}
+
+.month-trend-day.is-deficit {
+  background: rgba(80, 120, 82, 0.14);
+}
+
+.month-trend-day.is-surplus {
+  background: rgba(194, 83, 62, 0.13);
+}
+
+.month-trend-day.is-missing {
+  opacity: 0.58;
+}
+
+.month-trend-day.is-today {
+  border-color: var(--ink);
+}
+
+.month-trend-day > span {
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.month-trend-day__signals {
+  min-height: 7px;
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+}
+
+.month-trend-day__signals i,
+.month-trend-legend i {
+  width: 6px;
+  height: 6px;
+  display: inline-block;
+  border-radius: 50%;
+}
+
+.month-trend-day__signals i.is-meal,
+.month-trend-legend i.is-meal {
+  background: #d77a3d;
+}
+
+.month-trend-day__signals i.is-workout,
+.month-trend-legend i.is-workout {
+  background: #4f86aa;
+}
+
+.month-trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+.month-trend-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.month-trend-legend i.is-deficit {
+  background: var(--leaf);
+}
+
+.month-trend-legend i.is-surplus {
+  background: var(--tomato);
+}
+
+@media (max-width: 560px) {
+  .trend-dashboard__heading {
+    align-items: start;
+  }
+
+  .trend-dashboard__heading > small {
+    max-width: 170px;
+    font-size: 0.64rem;
+  }
+
+  .weekly-balance-panel,
+  .monthly-trend-panel {
+    padding: 12px;
+  }
+
+  .trend-panel__title > strong {
+    max-width: 135px;
+    font-size: 0.72rem;
+  }
+
+  .weekly-balance-chart {
+    gap: 3px;
+  }
+
+  .weekly-balance-day__plot {
+    min-height: 112px;
+  }
+
+  .weekly-balance-day__value {
+    font-size: 0.55rem;
+  }
+
+  .weekly-summary-grid,
+  .monthly-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .month-trend-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}

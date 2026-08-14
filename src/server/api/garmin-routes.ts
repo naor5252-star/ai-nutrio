@@ -81,6 +81,36 @@ type WorkoutSummary = {
   distance_km: number | null;
 };
 
+type TrendHealthRow = {
+  local_date: string;
+  steps: number | null;
+  active_energy_kcal: number | null;
+  resting_energy_kcal: number | null;
+  sleep_minutes: number | null;
+};
+
+type TrendMealRow = {
+  local_date: string;
+  meal_count: number;
+  intake_calories: number | null;
+  protein_grams: number | null;
+  carbohydrate_grams: number | null;
+  fat_grams: number | null;
+};
+
+type TrendWorkoutRow = {
+  local_date: string;
+  workout_count: number;
+  workout_minutes: number | null;
+  workout_active_energy_kcal: number | null;
+};
+
+function shiftLocalDate(localDate: string, offsetDays: number): string {
+  const value = new Date(`${localDate}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + offsetDays);
+  return value.toISOString().slice(0, 10);
+}
+
 export const garminRoutes = new Hono<AppEnv>();
 
 garminRoutes.post("/shortcut/import", async (context) => {
@@ -344,6 +374,102 @@ garminRoutes.get("/status", requireAuth, async (context) => {
       : shortcutConfigured
         ? "הגשר דרך Apple Health מוכן ומחכה לסנכרון הראשון מה־Shortcut."
         : "עד לקבלת אישור Garmin אפשר לסנכרן בחינם דרך Apple Health ו־Shortcuts.",
+  });
+});
+
+garminRoutes.get("/trends", requireAuth, async (context) => {
+  const query = z
+    .object({
+      end: localDateSchema,
+      days: z.coerce.number().int().min(7).max(62).default(35),
+    })
+    .parse({
+      end: context.req.query("end"),
+      days: context.req.query("days") ?? "35",
+    });
+
+  const userId = context.get("user").id;
+  const startDate = shiftLocalDate(query.end, -(query.days - 1));
+
+  const [healthRows, mealRows, workoutRows] = await Promise.all([
+    context.env.DB.prepare(
+      `SELECT local_date, steps, active_energy_kcal, resting_energy_kcal, sleep_minutes
+         FROM health_daily_summaries
+        WHERE owner_user_id = ? AND source = ? AND local_date BETWEEN ? AND ?
+        ORDER BY local_date`,
+    )
+      .bind(userId, SHORTCUT_PROVIDER, startDate, query.end)
+      .all<TrendHealthRow>(),
+    context.env.DB.prepare(
+      `SELECT local_date,
+              COUNT(*) AS meal_count,
+              SUM(COALESCE(total_calories, 0)) AS intake_calories,
+              SUM(COALESCE(total_protein_grams, 0)) AS protein_grams,
+              SUM(COALESCE(total_carbohydrate_grams, 0)) AS carbohydrate_grams,
+              SUM(COALESCE(total_fat_grams, 0)) AS fat_grams
+         FROM meals
+        WHERE owner_user_id = ? AND local_date BETWEEN ? AND ?
+        GROUP BY local_date
+        ORDER BY local_date`,
+    )
+      .bind(userId, startDate, query.end)
+      .all<TrendMealRow>(),
+    context.env.DB.prepare(
+      `SELECT substr(start_at, 1, 10) AS local_date,
+              COUNT(*) AS workout_count,
+              SUM(duration_minutes) AS workout_minutes,
+              SUM(COALESCE(active_energy_kcal, 0)) AS workout_active_energy_kcal
+         FROM health_workouts
+        WHERE owner_user_id = ? AND source = ?
+          AND substr(start_at, 1, 10) BETWEEN ? AND ?
+        GROUP BY substr(start_at, 1, 10)
+        ORDER BY local_date`,
+    )
+      .bind(userId, SHORTCUT_PROVIDER, startDate, query.end)
+      .all<TrendWorkoutRow>(),
+  ]);
+
+  const healthByDate = new Map(healthRows.results.map((row) => [row.local_date, row]));
+  const mealsByDate = new Map(mealRows.results.map((row) => [row.local_date, row]));
+  const workoutsByDate = new Map(workoutRows.results.map((row) => [row.local_date, row]));
+
+  const days = Array.from({ length: query.days }, (_, index) => {
+    const localDate = shiftLocalDate(startDate, index);
+    const health = healthByDate.get(localDate);
+    const meals = mealsByDate.get(localDate);
+    const workouts = workoutsByDate.get(localDate);
+
+    const hasBurnData =
+      health !== undefined &&
+      (health.active_energy_kcal !== null || health.resting_energy_kcal !== null);
+    const totalBurnedKcal = hasBurnData
+      ? (health?.active_energy_kcal ?? 0) + (health?.resting_energy_kcal ?? 0)
+      : null;
+    const intakeCalories = meals?.intake_calories ?? 0;
+
+    return {
+      localDate,
+      steps: health?.steps ?? null,
+      activeEnergyKcal: health?.active_energy_kcal ?? null,
+      restingEnergyKcal: health?.resting_energy_kcal ?? null,
+      totalBurnedKcal,
+      sleepMinutes: health?.sleep_minutes ?? null,
+      intakeCalories,
+      proteinGrams: meals?.protein_grams ?? 0,
+      carbohydrateGrams: meals?.carbohydrate_grams ?? 0,
+      fatGrams: meals?.fat_grams ?? 0,
+      mealCount: meals?.meal_count ?? 0,
+      balanceCalories: totalBurnedKcal === null ? null : totalBurnedKcal - intakeCalories,
+      workoutCount: workouts?.workout_count ?? 0,
+      workoutMinutes: workouts?.workout_minutes ?? 0,
+      workoutActiveEnergyKcal: workouts?.workout_active_energy_kcal ?? 0,
+    };
+  });
+
+  return context.json({
+    startDate,
+    endDate: query.end,
+    days,
   });
 });
 

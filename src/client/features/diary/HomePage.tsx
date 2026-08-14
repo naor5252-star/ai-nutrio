@@ -19,6 +19,30 @@ type GarminStatusResponse = {
   };
 };
 
+type HealthTrendDay = {
+  localDate: string;
+  steps: number | null;
+  activeEnergyKcal: number | null;
+  restingEnergyKcal: number | null;
+  totalBurnedKcal: number | null;
+  sleepMinutes: number | null;
+  intakeCalories: number;
+  proteinGrams: number;
+  carbohydrateGrams: number;
+  fatGrams: number;
+  mealCount: number;
+  balanceCalories: number | null;
+  workoutCount: number;
+  workoutMinutes: number;
+  workoutActiveEnergyKcal: number;
+};
+
+type HealthTrendsResponse = {
+  startDate: string;
+  endDate: string;
+  days: HealthTrendDay[];
+};
+
 const STEP_GOAL = 10_000;
 const HEALTH_SHORTCUT_NAME = "update app";
 
@@ -32,6 +56,59 @@ function todayLocal(): string {
 
 function formatNumber(value: number): string {
   return Math.round(value).toLocaleString("he-IL");
+}
+
+function shiftIsoDate(localDate: string, offsetDays: number): string {
+  const value = new Date(`${localDate}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + offsetDays);
+  return value.toISOString().slice(0, 10);
+}
+
+function startOfIsraeliWeek(localDate: string): string {
+  const value = new Date(`${localDate}T12:00:00Z`);
+  return shiftIsoDate(localDate, -value.getUTCDay());
+}
+
+function shortWeekday(localDate: string): string {
+  return new Intl.DateTimeFormat("he-IL", {
+    weekday: "short",
+    timeZone: "UTC",
+  }).format(new Date(`${localDate}T12:00:00Z`));
+}
+
+function formatDuration(minutes: number): string {
+  const rounded = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(rounded / 60);
+  const rest = rounded % 60;
+  if (hours === 0) return `${rest} דק׳`;
+  if (rest === 0) return `${hours} ש׳`;
+  return `${hours}:${String(rest).padStart(2, "0")} ש׳`;
+}
+
+function blankTrendDay(localDate: string): HealthTrendDay {
+  return {
+    localDate,
+    steps: null,
+    activeEnergyKcal: null,
+    restingEnergyKcal: null,
+    totalBurnedKcal: null,
+    sleepMinutes: null,
+    intakeCalories: 0,
+    proteinGrams: 0,
+    carbohydrateGrams: 0,
+    fatGrams: 0,
+    mealCount: 0,
+    balanceCalories: null,
+    workoutCount: 0,
+    workoutMinutes: 0,
+    workoutActiveEnergyKcal: 0,
+  };
+}
+
+function average(values: Array<number | null>): number | null {
+  const defined = values.filter((value): value is number => value !== null);
+  if (defined.length === 0) return null;
+  return defined.reduce((sum, value) => sum + value, 0) / defined.length;
 }
 
 function buildHealthShortcutUrl(): string {
@@ -82,6 +159,14 @@ export function HomePage(): React.JSX.Element {
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
+  const trends = useQuery({
+    queryKey: ["garmin", "trends", date],
+    queryFn: () =>
+      apiRequest<HealthTrendsResponse>(`/api/v1/garmin/trends?end=${date}&days=35`),
+    refetchInterval: 5 * 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
 
   const meals = diary.data?.meals ?? [];
   const totals = meals.reduce(
@@ -111,6 +196,48 @@ export function HomePage(): React.JSX.Element {
     totalBurned > 0 ? Math.min(100, (totals.calories / totalBurned) * 100) : 0;
   const syncTime =
     todayHealth?.importedAt ?? health.data?.shortcutBridge.lastSuccessfulSyncAt ?? null;
+
+  const trendDays = trends.data?.days ?? [];
+  const trendByDate = new Map(trendDays.map((day) => [day.localDate, day]));
+  const weekStart = startOfIsraeliWeek(date);
+  const weekDays = Array.from({ length: 7 }, (_, index) => {
+    const localDate = shiftIsoDate(weekStart, index);
+    return trendByDate.get(localDate) ?? blankTrendDay(localDate);
+  });
+  const weekToDate = weekDays.filter((day) => day.localDate <= date);
+  const knownWeekBalances = weekToDate.filter(
+    (day): day is HealthTrendDay & { balanceCalories: number } => day.balanceCalories !== null,
+  );
+  const weekBalance = knownWeekBalances.reduce((sum, day) => sum + day.balanceCalories, 0);
+  const weekConsumed = weekToDate.reduce((sum, day) => sum + day.intakeCalories, 0);
+  const weeklyFoodBudget = calorieTarget > 0 ? calorieTarget * 7 : null;
+  const weeklyFoodBudgetDelta =
+    weeklyFoodBudget === null ? null : weeklyFoodBudget - weekConsumed;
+  const weekDeficitDays = knownWeekBalances.filter((day) => day.balanceCalories > 0).length;
+  const weekWorkoutMinutes = weekToDate.reduce((sum, day) => sum + day.workoutMinutes, 0);
+  const weekMealDays = weekToDate.filter((day) => day.mealCount > 0).length;
+
+  const monthDays = trendDays.slice(-30);
+  const knownMonthBalances = monthDays.filter(
+    (day): day is HealthTrendDay & { balanceCalories: number } => day.balanceCalories !== null,
+  );
+  const monthBalance = knownMonthBalances.reduce((sum, day) => sum + day.balanceCalories, 0);
+  const monthMealDays = monthDays.filter((day) => day.mealCount > 0);
+  const monthAverageIntake =
+    monthMealDays.length > 0
+      ? monthMealDays.reduce((sum, day) => sum + day.intakeCalories, 0) / monthMealDays.length
+      : null;
+  const monthAverageProtein =
+    monthMealDays.length > 0
+      ? monthMealDays.reduce((sum, day) => sum + day.proteinGrams, 0) / monthMealDays.length
+      : null;
+  const monthActiveEnergy = monthDays.reduce(
+    (sum, day) => sum + (day.activeEnergyKcal ?? 0),
+    0,
+  );
+  const monthWorkoutMinutes = monthDays.reduce((sum, day) => sum + day.workoutMinutes, 0);
+  const monthAverageSteps = average(monthDays.map((day) => day.steps));
+  const monthAverageSleep = average(monthDays.map((day) => day.sleepMinutes));
 
   return (
     <div className="page home-page">
@@ -271,6 +398,149 @@ export function HomePage(): React.JSX.Element {
             </article>
           </div>
         )}
+
+        <section className="trend-dashboard" aria-labelledby="trend-title">
+          <div className="trend-dashboard__heading">
+            <div>
+              <p className="eyebrow">מגמות</p>
+              <h2 id="trend-title">השבוע והחודש שלך</h2>
+            </div>
+            <small>המאזן מבוסס על Apple Health ועל ארוחות שתועדו באפליקציה.</small>
+          </div>
+
+          {trends.isLoading ? (
+            <p className="health-dashboard__state">טוענים מגמות…</p>
+          ) : trends.isError ? (
+            <p className="health-dashboard__state">לא הצלחנו לטעון את המגמות כרגע.</p>
+          ) : (
+            <div className="trend-dashboard__panels">
+              <article className="weekly-balance-panel">
+                <div className="trend-panel__title">
+                  <div>
+                    <span>ראשון–שבת</span>
+                    <h3>מאזן קלורי שבועי</h3>
+                  </div>
+                  <strong
+                    className={
+                      knownWeekBalances.length === 0
+                        ? ""
+                        : weekBalance >= 0
+                          ? "is-deficit"
+                          : "is-surplus"
+                    }
+                  >
+                    {knownWeekBalances.length === 0
+                      ? "—"
+                      : `${weekBalance >= 0 ? "גירעון " : "עודף "}${formatNumber(Math.abs(weekBalance))} קל׳`}
+                  </strong>
+                </div>
+
+                <WeeklyBalanceChart days={weekDays} today={date} />
+
+                <div className="weekly-summary-grid">
+                  <div>
+                    <span>נותרו בתקציב האכילה השבועי</span>
+                    <b
+                      className={
+                        weeklyFoodBudgetDelta !== null && weeklyFoodBudgetDelta < 0
+                          ? "is-surplus"
+                          : ""
+                      }
+                    >
+                      {weeklyFoodBudgetDelta === null
+                        ? "—"
+                        : weeklyFoodBudgetDelta >= 0
+                          ? `${formatNumber(weeklyFoodBudgetDelta)} קל׳`
+                          : `חריגה ${formatNumber(Math.abs(weeklyFoodBudgetDelta))} קל׳`}
+                    </b>
+                  </div>
+                  <div>
+                    <span>ימי גירעון</span>
+                    <b>
+                      {knownWeekBalances.length === 0
+                        ? "—"
+                        : `${weekDeficitDays}/${knownWeekBalances.length}`}
+                    </b>
+                  </div>
+                  <div>
+                    <span>אימון השבוע</span>
+                    <b>{formatDuration(weekWorkoutMinutes)}</b>
+                  </div>
+                  <div>
+                    <span>ימי אכילה מתועדים</span>
+                    <b>{weekMealDays}/{weekToDate.length}</b>
+                  </div>
+                </div>
+                <p className="trend-note">
+                  „תקציב האכילה” מחושב מהיעד היומי כפול 7. המאזן הקלורי עצמו הוא נשרפו פחות נאכלו;
+                  היום הנוכחי הוא נתון חלקי עד לסיום היום.
+                </p>
+              </article>
+
+              <article className="monthly-trend-panel">
+                <div className="trend-panel__title">
+                  <div>
+                    <span>30 הימים האחרונים</span>
+                    <h3>חודש במבט אחד</h3>
+                  </div>
+                  <strong
+                    className={
+                      knownMonthBalances.length === 0
+                        ? ""
+                        : monthBalance >= 0
+                          ? "is-deficit"
+                          : "is-surplus"
+                    }
+                  >
+                    {knownMonthBalances.length === 0
+                      ? "אין מספיק נתונים"
+                      : `${monthBalance >= 0 ? "גירעון " : "עודף "}${formatNumber(Math.abs(monthBalance))} קל׳`}
+                  </strong>
+                </div>
+
+                <MonthTrendGrid days={monthDays} today={date} />
+
+                <div className="monthly-metrics-grid">
+                  <TrendMetric
+                    label="אכילה ממוצעת"
+                    value={
+                      monthAverageIntake === null
+                        ? "—"
+                        : `${formatNumber(monthAverageIntake)} קל׳`
+                    }
+                  />
+                  <TrendMetric
+                    label="חלבון ממוצע"
+                    value={
+                      monthAverageProtein === null
+                        ? "—"
+                        : `${formatNumber(monthAverageProtein)} ג׳`
+                    }
+                  />
+                  <TrendMetric
+                    label="קלוריות פעילות"
+                    value={`${formatNumber(monthActiveEnergy)} קל׳`}
+                  />
+                  <TrendMetric label="זמן אימון" value={formatDuration(monthWorkoutMinutes)} />
+                  <TrendMetric
+                    label="צעדים ממוצעים"
+                    value={monthAverageSteps === null ? "—" : formatNumber(monthAverageSteps)}
+                  />
+                  <TrendMetric
+                    label="שינה ממוצעת"
+                    value={monthAverageSleep === null ? "—" : formatDuration(monthAverageSleep)}
+                  />
+                </div>
+                <div className="month-trend-legend">
+                  <span><i className="is-deficit" /> גירעון</span>
+                  <span><i className="is-surplus" /> עודף</span>
+                  <span><i className="is-meal" /> אכילה תועדה</span>
+                  <span><i className="is-workout" /> אימון</span>
+                </div>
+              </article>
+            </div>
+          )}
+        </section>
       </section>
 
       <Link to="/add" className="camera-entry">
@@ -337,6 +607,103 @@ export function HomePage(): React.JSX.Element {
         <Link to="/shopping">רשימת קניות משותפת</Link>
         <Link to="/products">מוצרים וברקודים</Link>
       </div>
+    </div>
+  );
+}
+
+function WeeklyBalanceChart({
+  days,
+  today,
+}: {
+  days: HealthTrendDay[];
+  today: string;
+}): React.JSX.Element {
+  const maxMagnitude = Math.max(1, ...days.map((day) => Math.abs(day.balanceCalories ?? 0)));
+
+  return (
+    <div className="weekly-balance-chart" aria-label="גרף מאזן קלורי שבועי">
+      {days.map((day) => {
+        const balance = day.balanceCalories;
+        const isFuture = day.localDate > today;
+        const magnitude = balance === null ? 0 : Math.max(8, (Math.abs(balance) / maxMagnitude) * 46);
+
+        return (
+          <div
+            className={`weekly-balance-day${day.localDate === today ? " is-today" : ""}`}
+            key={day.localDate}
+            title={
+              balance === null
+                ? `${shortWeekday(day.localDate)}: אין נתוני מאזן`
+                : `${shortWeekday(day.localDate)}: ${balance >= 0 ? "גירעון" : "עודף"} ${formatNumber(Math.abs(balance))} קל׳ · נאכלו ${formatNumber(day.intakeCalories)} · נשרפו ${formatNumber(day.totalBurnedKcal ?? 0)}`
+            }
+          >
+            <span className="weekly-balance-day__value">
+              {isFuture || balance === null
+                ? "—"
+                : `${balance >= 0 ? "+" : "−"}${formatNumber(Math.abs(balance))}`}
+            </span>
+            <div className="weekly-balance-day__plot">
+              <span className="weekly-balance-day__zero" />
+              {!isFuture && balance !== null && (
+                <span
+                  className={`weekly-balance-day__bar ${balance >= 0 ? "is-deficit" : "is-surplus"}`}
+                  style={{ "--balance-size": `${magnitude}%` } as React.CSSProperties}
+                />
+              )}
+            </div>
+            <b>{shortWeekday(day.localDate)}</b>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MonthTrendGrid({
+  days,
+  today,
+}: {
+  days: HealthTrendDay[];
+  today: string;
+}): React.JSX.Element {
+  return (
+    <div className="month-trend-grid" aria-label="מגמות ב-30 הימים האחרונים">
+      {days.map((day) => {
+        const balanceClass =
+          day.balanceCalories === null
+            ? "is-missing"
+            : day.balanceCalories >= 0
+              ? "is-deficit"
+              : "is-surplus";
+        const dayNumber = Number(day.localDate.slice(-2));
+
+        return (
+          <div
+            key={day.localDate}
+            className={`month-trend-day ${balanceClass}${day.localDate === today ? " is-today" : ""}`}
+            title={`${day.localDate} · ${
+              day.balanceCalories === null
+                ? "אין מאזן"
+                : `${day.balanceCalories >= 0 ? "גירעון" : "עודף"} ${formatNumber(Math.abs(day.balanceCalories))} קל׳`
+            } · ${day.mealCount} ארוחות · ${formatDuration(day.workoutMinutes)}`}
+          >
+            <span>{dayNumber}</span>
+            <div className="month-trend-day__signals">
+              {day.mealCount > 0 && <i className="is-meal" aria-label="אכילה תועדה" />}
+              {day.workoutMinutes > 0 && <i className="is-workout" aria-label="אימון תועד" />}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TrendMetric({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <div className="trend-metric">
+      <span>{label}</span>
+      <b>{value}</b>
     </div>
   );
 }
