@@ -566,6 +566,27 @@
   grid-template-rows: 20px 1fr 22px;
   justify-items: center;
   gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.weekly-balance-day:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.weekly-balance-day:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.weekly-balance-day.is-selected .weekly-balance-day__plot {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .weekly-balance-day__value {
@@ -679,9 +700,23 @@
   place-items: center;
   align-content: center;
   gap: 3px;
+  padding: 0;
   border-radius: 10px;
   border: 1px solid transparent;
   background: var(--paper-deep);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.month-trend-day:active {
+  transform: scale(0.97);
+}
+
+.month-trend-day.is-selected {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px rgba(45, 73, 55, 0.14);
 }
 
 .month-trend-day.is-deficit {
@@ -793,5 +828,94 @@
 
   .month-trend-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+
+/* trend-day-drilldown-v1 */
+.daily-trend-detail {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(212, 203, 187, 0.75);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.daily-trend-detail__heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.daily-trend-detail__heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.daily-trend-detail__heading span {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.daily-trend-detail__heading h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.daily-trend-detail__heading > strong {
+  text-align: end;
+  font-size: 0.78rem;
+}
+
+.daily-trend-detail__heading > strong.is-deficit {
+  color: var(--leaf);
+}
+
+.daily-trend-detail__heading > strong.is-surplus {
+  color: var(--tomato);
+}
+
+.daily-trend-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.daily-trend-detail__grid .trend-metric {
+  padding: 8px;
+  background: rgba(255, 250, 240, 0.58);
+}
+
+.daily-trend-detail__grid .trend-metric b {
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 560px) {
+  .daily-trend-detail {
+    padding: 11px;
+  }
+
+  .daily-trend-detail__heading {
+    align-items: start;
+  }
+
+  .daily-trend-detail__heading > strong {
+    max-width: 145px;
+  }
+
+  .daily-trend-detail__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+}
+
+@media (max-width: 380px) {
+  .daily-trend-detail__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
