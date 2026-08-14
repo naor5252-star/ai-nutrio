@@ -812,7 +812,9 @@ function DailyTrendDetail({
         />
         <TrendMetric
           label="קלוריות מנוחה"
-          value={day.restingEnergyKcal === null ? "—" : `${formatNumber(day.restingEnergyKcal)} קל׳`}
+          value={
+            day.restingEnergyKcal === null ? "—" : `${formatNumber(day.restingEnergyKcal)} קל׳`
+          }
         />
         <TrendMetric
           label="אימון"
