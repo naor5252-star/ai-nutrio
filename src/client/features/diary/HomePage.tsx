@@ -161,8 +161,7 @@ export function HomePage(): React.JSX.Element {
   });
   const trends = useQuery({
     queryKey: ["garmin", "trends", date],
-    queryFn: () =>
-      apiRequest<HealthTrendsResponse>(`/api/v1/garmin/trends?end=${date}&days=35`),
+    queryFn: () => apiRequest<HealthTrendsResponse>(`/api/v1/garmin/trends?end=${date}&days=35`),
     refetchInterval: 5 * 60_000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
@@ -211,8 +210,7 @@ export function HomePage(): React.JSX.Element {
   const weekBalance = knownWeekBalances.reduce((sum, day) => sum + day.balanceCalories, 0);
   const weekConsumed = weekToDate.reduce((sum, day) => sum + day.intakeCalories, 0);
   const weeklyFoodBudget = calorieTarget > 0 ? calorieTarget * 7 : null;
-  const weeklyFoodBudgetDelta =
-    weeklyFoodBudget === null ? null : weeklyFoodBudget - weekConsumed;
+  const weeklyFoodBudgetDelta = weeklyFoodBudget === null ? null : weeklyFoodBudget - weekConsumed;
   const weekDeficitDays = knownWeekBalances.filter((day) => day.balanceCalories > 0).length;
   const weekWorkoutMinutes = weekToDate.reduce((sum, day) => sum + day.workoutMinutes, 0);
   const weekMealDays = weekToDate.filter((day) => day.mealCount > 0).length;
@@ -231,10 +229,7 @@ export function HomePage(): React.JSX.Element {
     monthMealDays.length > 0
       ? monthMealDays.reduce((sum, day) => sum + day.proteinGrams, 0) / monthMealDays.length
       : null;
-  const monthActiveEnergy = monthDays.reduce(
-    (sum, day) => sum + (day.activeEnergyKcal ?? 0),
-    0,
-  );
+  const monthActiveEnergy = monthDays.reduce((sum, day) => sum + (day.activeEnergyKcal ?? 0), 0);
   const monthWorkoutMinutes = monthDays.reduce((sum, day) => sum + day.workoutMinutes, 0);
   const monthAverageSteps = average(monthDays.map((day) => day.steps));
   const monthAverageSleep = average(monthDays.map((day) => day.sleepMinutes));
@@ -468,7 +463,9 @@ export function HomePage(): React.JSX.Element {
                   </div>
                   <div>
                     <span>ימי אכילה מתועדים</span>
-                    <b>{weekMealDays}/{weekToDate.length}</b>
+                    <b>
+                      {weekMealDays}/{weekToDate.length}
+                    </b>
                   </div>
                 </div>
                 <p className="trend-note">
@@ -504,17 +501,13 @@ export function HomePage(): React.JSX.Element {
                   <TrendMetric
                     label="אכילה ממוצעת"
                     value={
-                      monthAverageIntake === null
-                        ? "—"
-                        : `${formatNumber(monthAverageIntake)} קל׳`
+                      monthAverageIntake === null ? "—" : `${formatNumber(monthAverageIntake)} קל׳`
                     }
                   />
                   <TrendMetric
                     label="חלבון ממוצע"
                     value={
-                      monthAverageProtein === null
-                        ? "—"
-                        : `${formatNumber(monthAverageProtein)} ג׳`
+                      monthAverageProtein === null ? "—" : `${formatNumber(monthAverageProtein)} ג׳`
                     }
                   />
                   <TrendMetric
@@ -532,10 +525,18 @@ export function HomePage(): React.JSX.Element {
                   />
                 </div>
                 <div className="month-trend-legend">
-                  <span><i className="is-deficit" /> גירעון</span>
-                  <span><i className="is-surplus" /> עודף</span>
-                  <span><i className="is-meal" /> אכילה תועדה</span>
-                  <span><i className="is-workout" /> אימון</span>
+                  <span>
+                    <i className="is-deficit" /> גירעון
+                  </span>
+                  <span>
+                    <i className="is-surplus" /> עודף
+                  </span>
+                  <span>
+                    <i className="is-meal" /> אכילה תועדה
+                  </span>
+                  <span>
+                    <i className="is-workout" /> אימון
+                  </span>
                 </div>
               </article>
             </div>
@@ -625,7 +626,8 @@ function WeeklyBalanceChart({
       {days.map((day) => {
         const balance = day.balanceCalories;
         const isFuture = day.localDate > today;
-        const magnitude = balance === null ? 0 : Math.max(8, (Math.abs(balance) / maxMagnitude) * 46);
+        const magnitude =
+          balance === null ? 0 : Math.max(8, (Math.abs(balance) / maxMagnitude) * 46);
 
         return (
           <div
