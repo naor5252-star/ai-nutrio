@@ -5,7 +5,15 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".wrangler", "worker-configuration.d.ts", "public/sw.js"] },
+  {
+    ignores: [
+      "dist",
+      ".wrangler",
+      "worker-configuration.d.ts",
+      "public/sw.js",
+      "docs/iphone-widget/**/*.js",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
