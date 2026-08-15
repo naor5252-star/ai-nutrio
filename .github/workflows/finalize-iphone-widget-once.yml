@@ -35,9 +35,6 @@ jobs:
             src/server/api/garmin-routes.ts \
             docs/iphone-widget/rega-tov-widget.js
 
-      - name: Run full CI
-        run: npm run ci
-
       - name: Commit formatting and remove temporary workflow
         run: |
           git config user.name "github-actions[bot]"
