@@ -52,6 +52,29 @@ const shortcutImportSchema = z.object({
   workouts: z.array(workoutSchema).max(50).optional(),
 });
 
+const healthAutoExportQuantitySchema = z.object({
+  qty: z.number().finite(),
+  units: z.string().min(1).max(40),
+});
+
+const healthAutoExportWorkoutSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(160),
+  start: z.string().min(10).max(64),
+  end: z.string().min(10).max(64),
+  duration: z.number().finite().positive().max(864_000),
+  activeEnergyBurned: healthAutoExportQuantitySchema.nullable().optional(),
+  distance: healthAutoExportQuantitySchema.nullable().optional(),
+});
+
+const healthAutoExportSchema = z.object({
+  data: z.object({
+    workouts: z.array(healthAutoExportWorkoutSchema).max(500).default([]),
+  }),
+});
+
+const MAX_HEALTH_AUTO_EXPORT_BYTES = 2 * 1024 * 1024;
+
 type ShortcutConnection = {
   id: string;
   user_id: string;
@@ -109,6 +132,48 @@ function shiftLocalDate(localDate: string, offsetDays: number): string {
   const value = new Date(`${localDate}T12:00:00Z`);
   value.setUTCDate(value.getUTCDate() + offsetDays);
   return value.toISOString().slice(0, 10);
+}
+
+function normalizeHealthAutoExportDate(value: string): string {
+  const trimmed = value.trim();
+  const match =
+    /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+([+-]\d{2})(\d{2})$/u.exec(
+      trimmed,
+    );
+  const normalized = match
+    ? `${match[1]}T${match[2]}${match[3]}:${match[4]}`
+    : trimmed;
+
+  if (!Number.isFinite(Date.parse(normalized))) {
+    throw new AppError({
+      status: 400,
+      code: "HEALTH_AUTO_EXPORT_DATE_INVALID",
+      messageHe: "אחד מתאריכי האימון שהתקבלו מ־Health Auto Export אינו תקין",
+    });
+  }
+
+  return normalized;
+}
+
+function healthAutoExportEnergyKcal(
+  value: z.infer<typeof healthAutoExportQuantitySchema> | null | undefined,
+): number | null {
+  if (!value) return null;
+  const units = value.units.trim().toLowerCase();
+  if (units === "kcal") return value.qty;
+  if (units === "kj") return value.qty / 4.184;
+  return null;
+}
+
+function healthAutoExportDistanceKm(
+  value: z.infer<typeof healthAutoExportQuantitySchema> | null | undefined,
+): number | null {
+  if (!value) return null;
+  const units = value.units.trim().toLowerCase();
+  if (units === "km") return value.qty;
+  if (units === "mi") return value.qty * 1.609344;
+  if (units === "m") return value.qty / 1000;
+  return null;
 }
 
 export const garminRoutes = new Hono<AppEnv>();
@@ -288,6 +353,138 @@ garminRoutes.post("/shortcut/import", async (context) => {
     ok: true,
     importedDailySummaries: 1,
     importedWorkouts: workouts.length,
+    syncedAt: now,
+  });
+});
+
+garminRoutes.post("/health-auto-export/import", async (context) => {
+  const contentLength = Number(context.req.header("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > MAX_HEALTH_AUTO_EXPORT_BYTES) {
+    throw new AppError({
+      status: 413,
+      code: "HEALTH_AUTO_EXPORT_TOO_LARGE",
+      messageHe: "ייצוא האימונים גדול מדי. כבה Route Data ב־Health Auto Export ונסה שוב.",
+    });
+  }
+
+  const authorization = context.req.header("authorization") ?? "";
+  const match = /^Bearer\s+([A-Za-z0-9_-]+)$/iu.exec(authorization.trim());
+  const token = match?.[1];
+  if (!token || token.length < 32 || token.length > 200) {
+    throw new AppError({
+      status: 401,
+      code: "HEALTH_IMPORT_UNAUTHORIZED",
+      messageHe: "מפתח החיבור חסר או אינו תקין",
+    });
+  }
+
+  const tokenHash = await sha256Hex(token);
+  const connection = await context.env.DB.prepare(
+    `SELECT id, user_id, status, last_successful_sync_at, last_error_code
+       FROM health_shortcut_connections
+      WHERE provider = ? AND token_hash = ? AND revoked_at IS NULL`,
+  )
+    .bind(SHORTCUT_PROVIDER, tokenHash)
+    .first<ShortcutConnection>();
+
+  if (!connection) {
+    throw new AppError({
+      status: 401,
+      code: "HEALTH_IMPORT_TOKEN_REVOKED",
+      messageHe: "מפתח החיבור אינו פעיל. צור מפתח חדש בהגדרות.",
+    });
+  }
+
+  let rawInput: unknown;
+  try {
+    rawInput = await context.req.json();
+  } catch {
+    throw new AppError({
+      status: 400,
+      code: "HEALTH_AUTO_EXPORT_JSON_INVALID",
+      messageHe: "Health Auto Export לא שלחה JSON תקין",
+    });
+  }
+
+  const parsed = healthAutoExportSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new AppError({
+      status: 400,
+      code: "HEALTH_AUTO_EXPORT_VALIDATION_FAILED",
+      messageHe: "מבנה האימונים שהתקבל מ־Health Auto Export אינו נתמך",
+    });
+  }
+
+  const now = nowIso();
+  const statements: D1PreparedStatement[] = [];
+
+  for (const workout of parsed.data.data.workouts) {
+    const startAt = normalizeHealthAutoExportDate(workout.start);
+    const endAt = normalizeHealthAutoExportDate(workout.end);
+    if (Date.parse(endAt) < Date.parse(startAt)) {
+      throw new AppError({
+        status: 400,
+        code: "HEALTH_AUTO_EXPORT_WORKOUT_RANGE_INVALID",
+        messageHe: "זמן הסיום של אחד האימונים מוקדם מזמן ההתחלה",
+      });
+    }
+
+    statements.push(
+      context.env.DB.prepare(
+        `INSERT INTO health_workouts (
+           id, owner_user_id, source, source_record_id, workout_type,
+           start_at, end_at, duration_minutes, active_energy_kcal,
+           distance_km, average_heart_rate_bpm, max_heart_rate_bpm,
+           raw_json, imported_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(owner_user_id, source, source_record_id) DO UPDATE SET
+           workout_type = excluded.workout_type,
+           start_at = excluded.start_at,
+           end_at = excluded.end_at,
+           duration_minutes = excluded.duration_minutes,
+           active_energy_kcal = excluded.active_energy_kcal,
+           distance_km = excluded.distance_km,
+           raw_json = excluded.raw_json,
+           imported_at = excluded.imported_at,
+           updated_at = excluded.updated_at`,
+      ).bind(
+        secureUuid(),
+        connection.user_id,
+        SHORTCUT_PROVIDER,
+        workout.id,
+        workout.name.slice(0, 80),
+        startAt,
+        endAt,
+        workout.duration / 60,
+        healthAutoExportEnergyKcal(workout.activeEnergyBurned),
+        healthAutoExportDistanceKm(workout.distance),
+        null,
+        null,
+        JSON.stringify(workout),
+        now,
+        now,
+      ),
+    );
+  }
+
+  statements.push(
+    context.env.DB.prepare(
+      `UPDATE health_shortcut_connections
+          SET status = 'active',
+              last_successful_sync_at = ?,
+              last_error_code = NULL,
+              updated_at = ?
+        WHERE id = ?`,
+    ).bind(now, now, connection.id),
+  );
+
+  await context.env.DB.batch(statements);
+
+  return context.json({
+    ok: true,
+    source: "health-auto-export",
+    receivedWorkouts: parsed.data.data.workouts.length,
+    importedWorkouts: parsed.data.data.workouts.length,
     syncedAt: now,
   });
 });
