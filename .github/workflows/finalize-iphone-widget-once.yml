@@ -48,3 +48,5 @@ jobs:
           git rm .github/workflows/finalize-iphone-widget-once.yml
           git commit -m "Finalize iPhone calorie balance widget"
           git push origin HEAD:main
+
+# retrigger formatter
