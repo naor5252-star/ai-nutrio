@@ -136,13 +136,8 @@ function shiftLocalDate(localDate: string, offsetDays: number): string {
 
 function normalizeHealthAutoExportDate(value: string): string {
   const trimmed = value.trim();
-  const match =
-    /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+([+-]\d{2})(\d{2})$/u.exec(
-      trimmed,
-    );
-  const normalized = match
-    ? `${match[1]}T${match[2]}${match[3]}:${match[4]}`
-    : trimmed;
+  const match = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+([+-]\d{2})(\d{2})$/u.exec(trimmed);
+  const normalized = match ? `${match[1]}T${match[2]}${match[3]}:${match[4]}` : trimmed;
 
   if (!Number.isFinite(Date.parse(normalized))) {
     throw new AppError({
