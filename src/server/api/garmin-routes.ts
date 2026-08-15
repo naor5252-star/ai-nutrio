@@ -549,8 +549,7 @@ garminRoutes.get("/widget/balance", async (context) => {
 
   const intakeCalories = meals?.intake_calories ?? 0;
   const hasBurnData =
-    health !== null &&
-    (health.active_energy_kcal !== null || health.resting_energy_kcal !== null);
+    health !== null && (health.active_energy_kcal !== null || health.resting_energy_kcal !== null);
   const burnedCalories = hasBurnData
     ? (health?.active_energy_kcal ?? 0) + (health?.resting_energy_kcal ?? 0)
     : null;
