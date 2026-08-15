@@ -484,6 +484,95 @@ garminRoutes.post("/health-auto-export/import", async (context) => {
   });
 });
 
+garminRoutes.get("/widget/balance", async (context) => {
+  const date = localDateSchema.parse(context.req.query("date"));
+  const authorization = context.req.header("authorization") ?? "";
+  const match = /^Bearer\s+([A-Za-z0-9_-]+)$/iu.exec(authorization.trim());
+  const token = match?.[1];
+
+  if (!token || token.length < 32 || token.length > 200) {
+    throw new AppError({
+      status: 401,
+      code: "WIDGET_UNAUTHORIZED",
+      messageHe: "מפתח הווידג׳ט חסר או אינו תקין",
+    });
+  }
+
+  const tokenHash = await sha256Hex(token);
+  const connection = await context.env.DB.prepare(
+    `SELECT id, user_id, status, last_successful_sync_at, last_error_code
+       FROM health_shortcut_connections
+      WHERE provider = ? AND token_hash = ? AND revoked_at IS NULL`,
+  )
+    .bind(SHORTCUT_PROVIDER, tokenHash)
+    .first<ShortcutConnection>();
+
+  if (!connection) {
+    throw new AppError({
+      status: 401,
+      code: "WIDGET_TOKEN_REVOKED",
+      messageHe: "מפתח הווידג׳ט אינו פעיל. צור מפתח חדש בהגדרות.",
+    });
+  }
+
+  const [health, meals, target] = await Promise.all([
+    context.env.DB.prepare(
+      `SELECT active_energy_kcal, resting_energy_kcal, steps, imported_at
+         FROM health_daily_summaries
+        WHERE owner_user_id = ? AND source = ? AND local_date = ?
+        LIMIT 1`,
+    )
+      .bind(connection.user_id, SHORTCUT_PROVIDER, date)
+      .first<{
+        active_energy_kcal: number | null;
+        resting_energy_kcal: number | null;
+        steps: number | null;
+        imported_at: string | null;
+      }>(),
+    context.env.DB.prepare(
+      `SELECT COALESCE(SUM(total_calories), 0) AS intake_calories
+         FROM meals
+        WHERE owner_user_id = ? AND local_date = ?`,
+    )
+      .bind(connection.user_id, date)
+      .first<{ intake_calories: number | null }>(),
+    context.env.DB.prepare(
+      `SELECT effective_calories
+         FROM nutrition_target_versions
+        WHERE user_id = ?
+        ORDER BY effective_from DESC
+        LIMIT 1`,
+    )
+      .bind(connection.user_id)
+      .first<{ effective_calories: number | null }>(),
+  ]);
+
+  const intakeCalories = meals?.intake_calories ?? 0;
+  const hasBurnData =
+    health !== null &&
+    (health.active_energy_kcal !== null || health.resting_energy_kcal !== null);
+  const burnedCalories = hasBurnData
+    ? (health?.active_energy_kcal ?? 0) + (health?.resting_energy_kcal ?? 0)
+    : null;
+  const balanceCalories = burnedCalories === null ? null : burnedCalories - intakeCalories;
+  const calorieTarget = target?.effective_calories ?? null;
+  const remainingToTarget = calorieTarget === null ? null : calorieTarget - intakeCalories;
+  const appBaseUrl = context.env.APP_BASE_URL.replace(/\/$/u, "");
+
+  return context.json({
+    date,
+    intakeCalories,
+    burnedCalories,
+    balanceCalories,
+    calorieTarget,
+    remainingToTarget,
+    steps: health?.steps ?? null,
+    updatedAt: health?.imported_at ?? connection.last_successful_sync_at ?? null,
+    homeUrl: appBaseUrl,
+    addUrl: `${appBaseUrl}/add`,
+  });
+});
+
 garminRoutes.get("/status", requireAuth, async (context) => {
   const userId = context.get("user").id;
   const [officialConnection, shortcutConnection, latestDaily, recentWorkouts] = await Promise.all([
