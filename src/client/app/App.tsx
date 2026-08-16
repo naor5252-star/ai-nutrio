@@ -7,6 +7,7 @@ import { LoginPage } from "../features/auth/LoginPage";
 import { HomePage } from "../features/diary/HomePage";
 import { DiaryPage } from "../features/diary/DiaryPage";
 import { CapturePage } from "../features/capture/CapturePage";
+import { QuickPhotoPage } from "../features/capture/QuickPhotoPage";
 import { AnalysisReviewPage } from "../features/capture/AnalysisReviewPage";
 import { CoachPage } from "../features/coach/CoachPage";
 import { ProgressPage } from "../features/progress/ProgressPage";
@@ -71,6 +72,7 @@ export function App(): React.JSX.Element {
         </div>
       )}
       <Routes>
+        <Route path="quick-photo" element={<QuickPhotoPage />} />
         <Route element={<AppShell />}>
           <Route index element={<HomePage />} />
           <Route path="diary" element={<DiaryPage />} />

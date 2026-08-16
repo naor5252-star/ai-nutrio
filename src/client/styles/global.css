@@ -2300,3 +2300,129 @@ summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Quick photo launcher opened from the iPhone widget */
+.quick-photo-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at 85% 8%, rgb(80 120 82 / 12%), transparent 34%),
+    var(--cream);
+  position: relative;
+}
+
+.quick-photo-page__close {
+  position: fixed;
+  inset-block-start: max(16px, env(safe-area-inset-top));
+  inset-inline-start: 18px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgb(255 249 240 / 92%);
+  color: var(--leaf-dark);
+  font-size: 1.7rem;
+  line-height: 1;
+  z-index: 2;
+}
+
+.quick-photo-card {
+  width: min(100%, 430px);
+  display: grid;
+  gap: 14px;
+  padding: 30px 22px 24px;
+  border: 1px solid var(--line);
+  border-radius: 30px 10px 30px 10px;
+  background: rgb(255 255 255 / 82%);
+  box-shadow: 0 24px 70px rgb(45 73 55 / 12%);
+  text-align: center;
+}
+
+.quick-photo-card__mark {
+  width: 78px;
+  height: 78px;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  border-radius: 50%;
+  background: #e7efe5;
+  color: var(--leaf-dark);
+  font-size: 2.7rem;
+}
+
+.quick-photo-card h1 {
+  margin: 0;
+  color: var(--leaf-dark);
+  font-size: clamp(1.65rem, 7vw, 2.15rem);
+  line-height: 1.15;
+}
+
+.quick-photo-card__description {
+  margin: 0 0 4px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.quick-photo-card__camera {
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 18px;
+  background: var(--leaf-dark);
+  color: white;
+  font-size: 1.08rem;
+  font-weight: 750;
+  box-shadow: 0 12px 28px rgb(45 73 55 / 18%);
+}
+
+.quick-photo-card__camera span:first-child {
+  font-size: 1.5rem;
+}
+
+.quick-photo-card__gallery {
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--leaf-dark);
+  font-weight: 650;
+}
+
+.quick-photo-card__camera:disabled,
+.quick-photo-card__gallery:disabled {
+  opacity: 0.58;
+}
+
+.quick-photo-card__status {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: 13px;
+  background: #f3eee4;
+  color: var(--leaf-dark);
+  font-size: 0.92rem;
+}
+
+.quick-photo-card__spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgb(45 73 55 / 22%);
+  border-top-color: var(--leaf-dark);
+  border-radius: 50%;
+  animation: quick-photo-spin 0.75s linear infinite;
+}
+
+@keyframes quick-photo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

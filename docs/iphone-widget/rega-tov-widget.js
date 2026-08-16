@@ -140,7 +140,7 @@ async function makeWidget() {
   top.layoutHorizontally();
   const summary = top.addStack();
   summary.layoutVertically();
-  summary.url = data.homeUrl;
+  summary.url = API_BASE;
 
   const brand = summary.addText("רגע טוב · היום");
   brand.font = Font.semiboldSystemFont(11);
@@ -189,9 +189,9 @@ async function makeWidget() {
   action.backgroundColor = new Color("#2D4937");
   action.cornerRadius = 12;
   action.setPadding(9, 12, 9, 12);
-  action.url = cameraActionUrl();
+  action.url = `${API_BASE}/quick-photo`;
 
-  const camera = action.addText("📷  צלם והתחל ניתוח");
+  const camera = action.addText("📷  צילום מהיר");
   camera.font = Font.semiboldSystemFont(13);
   camera.textColor = Color.white();
   return widget;
