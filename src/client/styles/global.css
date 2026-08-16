@@ -2308,8 +2308,7 @@ summary {
   place-items: center;
   padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
   background:
-    radial-gradient(circle at 85% 8%, rgb(80 120 82 / 12%), transparent 34%),
-    var(--cream);
+    radial-gradient(circle at 85% 8%, rgb(80 120 82 / 12%), transparent 34%), var(--cream);
   position: relative;
 }
 
