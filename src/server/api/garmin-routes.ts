@@ -58,6 +58,17 @@ const healthAutoExportQuantitySchema = z.object({
   units: z.string().min(1).max(40),
 });
 
+const healthAutoExportMetricPointSchema = z.object({
+  qty: z.number().finite(),
+  date: z.string().min(10).max(64),
+});
+
+const healthAutoExportMetricSchema = z.object({
+  name: z.string().min(1).max(120),
+  units: z.string().min(1).max(40),
+  data: z.array(healthAutoExportMetricPointSchema).max(20_000).default([]),
+});
+
 const healthAutoExportWorkoutSchema = z.object({
   id: z.string().min(1).max(200),
   name: z.string().min(1).max(160),
@@ -70,6 +81,7 @@ const healthAutoExportWorkoutSchema = z.object({
 
 const healthAutoExportSchema = z.object({
   data: z.object({
+    metrics: z.array(healthAutoExportMetricSchema).max(250).default([]),
     workouts: z.array(healthAutoExportWorkoutSchema).max(500).default([]),
   }),
 });
@@ -170,6 +182,68 @@ function healthAutoExportDistanceKm(
   if (units === "mi") return value.qty * 1.609344;
   if (units === "m") return value.qty / 1000;
   return null;
+}
+
+
+type HealthAutoExportDailyMetrics = {
+  steps: number | null;
+  activeEnergyKcal: number | null;
+  restingEnergyKcal: number | null;
+  walkingRunningDistanceKm: number | null;
+};
+
+function healthAutoExportMetricLocalDate(value: string): string {
+  const match = /^(\d{4}-\d{2}-\d{2})/u.exec(value.trim());
+  if (!match) {
+    throw new AppError({
+      status: 400,
+      code: "HEALTH_AUTO_EXPORT_METRIC_DATE_INVALID",
+      messageHe: "אחד מתאריכי מדדי הבריאות שהתקבלו מ־Health Auto Export אינו תקין",
+    });
+  }
+  return match[1];
+}
+
+function collectHealthAutoExportDailyMetrics(
+  metrics: z.infer<typeof healthAutoExportMetricSchema>[],
+): Map<string, HealthAutoExportDailyMetrics> {
+  const byDate = new Map<string, HealthAutoExportDailyMetrics>();
+
+  for (const metric of metrics) {
+    const name = metric.name.trim().toLowerCase();
+    for (const point of metric.data) {
+      const localDate = healthAutoExportMetricLocalDate(point.date);
+      const daily = byDate.get(localDate) ?? {
+        steps: null,
+        activeEnergyKcal: null,
+        restingEnergyKcal: null,
+        walkingRunningDistanceKm: null,
+      };
+
+      if (name === "step_count") {
+        daily.steps = (daily.steps ?? 0) + point.qty;
+      } else if (name === "active_energy" || name === "active_energy_burned") {
+        const value = healthAutoExportEnergyKcal({ qty: point.qty, units: metric.units });
+        if (value !== null) daily.activeEnergyKcal = (daily.activeEnergyKcal ?? 0) + value;
+      } else if (
+        name === "basal_energy_burned" ||
+        name === "basal_energy" ||
+        name === "resting_energy"
+      ) {
+        const value = healthAutoExportEnergyKcal({ qty: point.qty, units: metric.units });
+        if (value !== null) daily.restingEnergyKcal = (daily.restingEnergyKcal ?? 0) + value;
+      } else if (name === "walking_running_distance") {
+        const value = healthAutoExportDistanceKm({ qty: point.qty, units: metric.units });
+        if (value !== null) {
+          daily.walkingRunningDistanceKm = (daily.walkingRunningDistanceKm ?? 0) + value;
+        }
+      }
+
+      byDate.set(localDate, daily);
+    }
+  }
+
+  return byDate;
 }
 
 export const garminRoutes = new Hono<AppEnv>();
@@ -407,12 +481,49 @@ garminRoutes.post("/health-auto-export/import", async (context) => {
     throw new AppError({
       status: 400,
       code: "HEALTH_AUTO_EXPORT_VALIDATION_FAILED",
-      messageHe: "מבנה האימונים שהתקבל מ־Health Auto Export אינו נתמך",
+      messageHe: "מבנה הנתונים שהתקבל מ־Health Auto Export אינו נתמך",
     });
   }
 
   const now = nowIso();
   const statements: D1PreparedStatement[] = [];
+  const dailyMetrics = collectHealthAutoExportDailyMetrics(parsed.data.data.metrics);
+  const metricsRawJson = JSON.stringify({ metrics: parsed.data.data.metrics });
+
+  for (const [localDate, daily] of dailyMetrics) {
+    statements.push(
+      context.env.DB.prepare(
+        `INSERT INTO health_daily_summaries (
+           id, owner_user_id, source, local_date, timezone, generated_at,
+           steps, active_energy_kcal, resting_energy_kcal, walking_running_distance_km,
+           raw_json, imported_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(owner_user_id, source, local_date) DO UPDATE SET
+           generated_at = excluded.generated_at,
+           steps = COALESCE(excluded.steps, health_daily_summaries.steps),
+           active_energy_kcal = COALESCE(excluded.active_energy_kcal, health_daily_summaries.active_energy_kcal),
+           resting_energy_kcal = COALESCE(excluded.resting_energy_kcal, health_daily_summaries.resting_energy_kcal),
+           walking_running_distance_km = COALESCE(excluded.walking_running_distance_km, health_daily_summaries.walking_running_distance_km),
+           raw_json = excluded.raw_json,
+           imported_at = excluded.imported_at,
+           updated_at = excluded.updated_at`,
+      ).bind(
+        secureUuid(),
+        connection.user_id,
+        SHORTCUT_PROVIDER,
+        localDate,
+        "Asia/Jerusalem",
+        now,
+        daily.steps === null ? null : Math.max(0, Math.round(daily.steps)),
+        daily.activeEnergyKcal,
+        daily.restingEnergyKcal,
+        daily.walkingRunningDistanceKm,
+        metricsRawJson,
+        now,
+        now,
+      ),
+    );
+  }
 
   for (const workout of parsed.data.data.workouts) {
     const startAt = normalizeHealthAutoExportDate(workout.start);
@@ -479,6 +590,8 @@ garminRoutes.post("/health-auto-export/import", async (context) => {
   return context.json({
     ok: true,
     source: "health-auto-export",
+    receivedMetrics: parsed.data.data.metrics.length,
+    importedDailySummaries: dailyMetrics.size,
     receivedWorkouts: parsed.data.data.workouts.length,
     importedWorkouts: parsed.data.data.workouts.length,
     syncedAt: now,
