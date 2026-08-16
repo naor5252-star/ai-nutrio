@@ -573,7 +573,6 @@ garminRoutes.get("/widget/balance", async (context) => {
   });
 });
 
-
 garminRoutes.post("/widget/photo", async (context) => {
   const authorization = context.req.header("authorization") ?? "";
   const match = /^Bearer\s+([A-Za-z0-9_-]+)$/iu.exec(authorization.trim());
@@ -703,7 +702,6 @@ garminRoutes.post("/widget/photo", async (context) => {
     202,
   );
 });
-
 
 garminRoutes.get("/status", requireAuth, async (context) => {
   const userId = context.get("user").id;
