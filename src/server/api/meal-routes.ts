@@ -136,7 +136,7 @@ mealRoutes.post("/merge", requireCsrf, async (context) => {
         });
       }
 
-      const rawSnapshot = Reflect.get(item, "source_snapshot_json");
+      const rawSnapshot: unknown = Reflect.get(item, "source_snapshot_json");
       if (typeof rawSnapshot !== "string") {
         throw new AppError({
           status: 500,
