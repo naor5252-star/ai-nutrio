@@ -17,6 +17,28 @@ function fmt(value) {
   return Math.round(Number(value)).toLocaleString("he-IL");
 }
 
+function cameraActionUrl() {
+  const base = URLScheme.forRunningScript();
+  return `${base}${base.includes("?") ? "&" : "?"}action=camera`;
+}
+
+function resizeForUpload(image, maxDimension = 1600) {
+  const width = image.size.width;
+  const height = image.size.height;
+  const largest = Math.max(width, height);
+  if (largest <= maxDimension) return image;
+
+  const scale = maxDimension / largest;
+  const resizedWidth = Math.max(1, Math.round(width * scale));
+  const resizedHeight = Math.max(1, Math.round(height * scale));
+  const canvas = new DrawContext();
+  canvas.size = new Size(resizedWidth, resizedHeight);
+  canvas.opaque = true;
+  canvas.respectScreenScale = false;
+  canvas.drawImageInRect(image, new Rect(0, 0, resizedWidth, resizedHeight));
+  return canvas.getImage();
+}
+
 async function loadBalance() {
   const request = new Request(
     `${API_BASE}/api/v1/garmin/widget/balance?date=${encodeURIComponent(localDate())}`,
@@ -34,6 +56,48 @@ async function loadBalance() {
     throw new Error(data?.error?.messageHe ?? `HTTP ${status}`);
   }
   return data;
+}
+
+async function captureMealFromCamera() {
+  if (!TOKEN || TOKEN.includes("PASTE_YOUR_NEW_REGA_TOV_TOKEN_HERE")) {
+    throw new Error("צריך להגדיר TOKEN בסקריפט לפני השימוש במצלמה");
+  }
+
+  const image = await Photos.fromCamera();
+  const resized = resizeForUpload(image);
+  const jpeg = Data.fromJPEG(resized);
+
+  const request = new Request(`${API_BASE}/api/v1/garmin/widget/photo`);
+  request.method = "POST";
+  request.headers = {
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "image/jpeg",
+    Accept: "application/json",
+  };
+  request.body = jpeg;
+  request.timeoutInterval = 45;
+
+  const data = await request.loadJSON();
+  const status = request.response?.statusCode ?? 200;
+  if (status < 200 || status >= 300 || data?.error) {
+    throw new Error(data?.error?.messageHe ?? `HTTP ${status}`);
+  }
+
+  if (data.analysisUrl) {
+    Safari.open(data.analysisUrl);
+  }
+}
+
+async function runCameraAction() {
+  try {
+    await captureMealFromCamera();
+  } catch (error) {
+    const alert = new Alert();
+    alert.title = "רגע טוב";
+    alert.message = String(error?.message ?? error);
+    alert.addAction("סגור");
+    await alert.presentAlert();
+  }
 }
 
 function addMetric(stack, label, value) {
@@ -125,18 +189,23 @@ async function makeWidget() {
   action.backgroundColor = new Color("#2D4937");
   action.cornerRadius = 12;
   action.setPadding(9, 12, 9, 12);
-  action.url = data.addUrl;
+  action.url = cameraActionUrl();
 
-  const camera = action.addText("📷  הוסף ארוחה מתמונה");
+  const camera = action.addText("📷  צלם והתחל ניתוח");
   camera.font = Font.semiboldSystemFont(13);
   camera.textColor = Color.white();
   return widget;
 }
 
-const widget = await makeWidget();
-if (config.runsInWidget) {
-  Script.setWidget(widget);
+if (!config.runsInWidget && args.queryParameters?.action === "camera") {
+  await runCameraAction();
 } else {
-  await widget.presentMedium();
+  const widget = await makeWidget();
+  if (config.runsInWidget) {
+    Script.setWidget(widget);
+  } else {
+    await widget.presentMedium();
+  }
 }
+
 Script.complete();

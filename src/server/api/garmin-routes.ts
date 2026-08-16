@@ -2,12 +2,13 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context";
 import { requireAuth, requireCsrf } from "../auth/session";
-import { nowIso } from "../repositories/db";
+import { addDaysIso, nowIso } from "../repositories/db";
 import { randomToken, secureUuid, sha256Hex } from "../security/crypto";
 import { AppError } from "./errors";
 
 const SHORTCUT_PROVIDER = "apple_health_shortcut";
 const MAX_IMPORT_BYTES = 128 * 1024;
+const MAX_WIDGET_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const localDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);
 const dateTimeSchema = z
@@ -571,6 +572,138 @@ garminRoutes.get("/widget/balance", async (context) => {
     addUrl: `${appBaseUrl}/add`,
   });
 });
+
+
+garminRoutes.post("/widget/photo", async (context) => {
+  const authorization = context.req.header("authorization") ?? "";
+  const match = /^Bearer\s+([A-Za-z0-9_-]+)$/iu.exec(authorization.trim());
+  const token = match?.[1];
+
+  if (!token || token.length < 32 || token.length > 200) {
+    throw new AppError({
+      status: 401,
+      code: "WIDGET_UNAUTHORIZED",
+      messageHe: "מפתח הווידג׳ט חסר או אינו תקין",
+    });
+  }
+
+  const tokenHash = await sha256Hex(token);
+  const connection = await context.env.DB.prepare(
+    `SELECT id, user_id, status, last_successful_sync_at, last_error_code
+       FROM health_shortcut_connections
+      WHERE provider = ? AND token_hash = ? AND revoked_at IS NULL`,
+  )
+    .bind(SHORTCUT_PROVIDER, tokenHash)
+    .first<ShortcutConnection>();
+
+  if (!connection) {
+    throw new AppError({
+      status: 401,
+      code: "WIDGET_TOKEN_REVOKED",
+      messageHe: "מפתח הווידג׳ט אינו פעיל. צור מפתח חדש בהגדרות.",
+    });
+  }
+
+  const contentType = (context.req.header("content-type") ?? "").split(";")[0]?.trim() ?? "";
+  if (contentType !== "image/jpeg") {
+    throw new AppError({
+      status: 415,
+      code: "WIDGET_IMAGE_TYPE_INVALID",
+      messageHe: "הווידג׳ט תומך כרגע בתמונת JPEG",
+    });
+  }
+
+  const declaredLength = Number(context.req.header("content-length") ?? "0");
+  if (declaredLength > MAX_WIDGET_IMAGE_BYTES) {
+    throw new AppError({
+      status: 413,
+      code: "WIDGET_IMAGE_TOO_LARGE",
+      messageHe: "התמונה גדולה מדי. נסה לצלם שוב.",
+    });
+  }
+
+  const bytes = await context.req.arrayBuffer();
+  const signature = new Uint8Array(bytes);
+  if (
+    bytes.byteLength === 0 ||
+    bytes.byteLength > MAX_WIDGET_IMAGE_BYTES ||
+    signature.length < 3 ||
+    signature[0] !== 0xff ||
+    signature[1] !== 0xd8 ||
+    signature[2] !== 0xff
+  ) {
+    throw new AppError({
+      status: 415,
+      code: "WIDGET_IMAGE_INVALID",
+      messageHe: "התמונה אינה JPEG תקינה או שהיא גדולה מדי",
+    });
+  }
+
+  const userId = connection.user_id;
+  const jobId = secureUuid();
+  const mediaId = secureUuid();
+  const clientMutationId = secureUuid();
+  const now = nowIso();
+  const expiresAt = addDaysIso(Number(context.env.IMAGE_RETENTION_DAYS));
+  const objectKey = `private/${userId}/${jobId}/${mediaId}`;
+
+  await context.env.MEDIA.put(objectKey, bytes, {
+    httpMetadata: { contentType },
+    customMetadata: {
+      ownerUserId: userId,
+      analysisJobId: jobId,
+      logicalExpiresAt: expiresAt,
+      source: "scriptable-widget",
+    },
+  });
+
+  await context.env.DB.batch([
+    context.env.DB.prepare(
+      "INSERT INTO analysis_jobs (id, owner_user_id, job_type, status, client_mutation_id, created_at, updated_at) VALUES (?, ?, 'meal', 'uploading', ?, ?, ?)",
+    ).bind(jobId, userId, clientMutationId, now, now),
+    context.env.DB.prepare(
+      "INSERT INTO media_objects (id, owner_user_id, r2_object_key, media_type, content_type, size_bytes, uploaded_at, logical_expires_at) VALUES (?, ?, ?, 'analysis_image', ?, ?, ?, ?)",
+    ).bind(mediaId, userId, objectKey, contentType, bytes.byteLength, now, expiresAt),
+    context.env.DB.prepare(
+      "INSERT INTO analysis_job_images (analysis_job_id, media_object_id, image_order) VALUES (?, ?, 0)",
+    ).bind(jobId, mediaId),
+  ]);
+
+  try {
+    const instance = await context.env.MEAL_ANALYSIS.create({
+      id: jobId,
+      params: { jobId, userId },
+    });
+    await context.env.DB.prepare(
+      "UPDATE analysis_jobs SET status = 'queued', workflow_instance_id = ?, error_code = NULL, error_message_he = NULL, updated_at = ? WHERE id = ? AND owner_user_id = ?",
+    )
+      .bind(instance.id, nowIso(), jobId, userId)
+      .run();
+  } catch {
+    await context.env.DB.prepare(
+      "UPDATE analysis_jobs SET status = 'failed', error_code = 'WIDGET_ANALYSIS_START_FAILED', error_message_he = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?",
+    )
+      .bind("לא הצלחנו להתחיל את ניתוח התמונה. אפשר לנסות שוב.", nowIso(), jobId, userId)
+      .run();
+    throw new AppError({
+      status: 503,
+      code: "WIDGET_ANALYSIS_START_FAILED",
+      messageHe: "לא הצלחנו להתחיל את ניתוח התמונה. אפשר לנסות שוב.",
+    });
+  }
+
+  const appBaseUrl = context.env.APP_BASE_URL.replace(/\/$/u, "");
+  return context.json(
+    {
+      ok: true,
+      jobId,
+      status: "queued",
+      analysisUrl: `${appBaseUrl}/analysis/${jobId}`,
+    },
+    202,
+  );
+});
+
 
 garminRoutes.get("/status", requireAuth, async (context) => {
   const userId = context.get("user").id;
