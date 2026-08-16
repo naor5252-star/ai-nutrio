@@ -432,9 +432,7 @@ export function DiaryPage(): React.JSX.Element {
                     }
                   }}
                 >
-                  {mergeMeals.isPending
-                    ? "מאחדים…"
-                    : `אחד ${selectedMealIds.length} ארוחות`}
+                  {mergeMeals.isPending ? "מאחדים…" : `אחד ${selectedMealIds.length} ארוחות`}
                 </button>
               </div>
               {mergeError && <p className="form-error">{mergeError}</p>}

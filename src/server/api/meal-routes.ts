@@ -93,9 +93,7 @@ mealRoutes.post("/merge", requireCsrf, async (context) => {
     });
   }
 
-  const sourceMeals = snapshots.filter(
-    (meal): meal is Record<string, unknown> => meal !== null,
-  );
+  const sourceMeals = snapshots.filter((meal): meal is Record<string, unknown> => meal !== null);
   const localDates = new Set(
     sourceMeals.map((meal) => (typeof meal.local_date === "string" ? meal.local_date : "")),
   );
