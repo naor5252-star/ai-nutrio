@@ -184,7 +184,6 @@ function healthAutoExportDistanceKm(
   return null;
 }
 
-
 type HealthAutoExportDailyMetrics = {
   steps: number | null;
   activeEnergyKcal: number | null;
