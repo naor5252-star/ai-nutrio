@@ -43,3 +43,5 @@ jobs:
           git rm .github/workflows/finalize-health-auto-export-metrics-once.yml
           git commit -m "Finalize Health Auto Export metric ingestion"
           git push origin HEAD:main
+
+# retrigger-after-type-fix

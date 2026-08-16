@@ -194,14 +194,15 @@ type HealthAutoExportDailyMetrics = {
 
 function healthAutoExportMetricLocalDate(value: string): string {
   const match = /^(\d{4}-\d{2}-\d{2})/u.exec(value.trim());
-  if (!match) {
+  const localDate = match?.[1];
+  if (!localDate) {
     throw new AppError({
       status: 400,
       code: "HEALTH_AUTO_EXPORT_METRIC_DATE_INVALID",
       messageHe: "אחד מתאריכי מדדי הבריאות שהתקבלו מ־Health Auto Export אינו תקין",
     });
   }
-  return match[1];
+  return localDate;
 }
 
 function collectHealthAutoExportDailyMetrics(
