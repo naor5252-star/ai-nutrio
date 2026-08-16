@@ -84,6 +84,9 @@ export function DiaryPage(): React.JSX.Element {
   const [date, setDate] = useState(isoDate(new Date()));
   const [editDraft, setEditDraft] = useState<MealEditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [mergeMode, setMergeMode] = useState(false);
+  const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
+  const [mergeError, setMergeError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["meals", date],
@@ -92,6 +95,24 @@ export function DiaryPage(): React.JSX.Element {
   const favorite = useMutation({
     mutationFn: (id: string) => apiRequest(`/api/v1/meals/${id}/favorite`, { method: "POST" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["meals", date] }),
+  });
+  const mergeMeals = useMutation({
+    mutationFn: (mealIds: string[]) =>
+      apiRequest<{ id: string; localDate: string; mergedMeals: number }>("/api/v1/meals/merge", {
+        method: "POST",
+        body: JSON.stringify({ mealIds }),
+      }),
+    onSuccess: async (result) => {
+      setMergeMode(false);
+      setSelectedMealIds([]);
+      setMergeError(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["meals"] }),
+        queryClient.invalidateQueries({ queryKey: ["garmin", "trends"] }),
+      ]);
+      setDate(result.localDate);
+    },
+    onError: () => setMergeError("לא הצלחנו לאחד את הארוחות. נסה שוב."),
   });
   const saveEdit = useMutation({
     mutationFn: (draft: MealEditDraft) =>
@@ -129,6 +150,13 @@ export function DiaryPage(): React.JSX.Element {
       notes: meal.notes,
       items: meal.items.map((item) => parseSnapshot(item.source_snapshot_json)),
     });
+  }
+
+  function toggleMergeMeal(id: string): void {
+    setMergeError(null);
+    setSelectedMealIds((current) =>
+      current.includes(id) ? current.filter((mealId) => mealId !== id) : [...current, id],
+    );
   }
 
   function updateItem(index: number, patch: Partial<EditableMealItem>): void {
@@ -361,6 +389,60 @@ export function DiaryPage(): React.JSX.Element {
         </section>
       )}
 
+      {meals.length >= 2 && (
+        <section className="meal-merge-toolbar">
+          {!mergeMode ? (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => {
+                setMergeMode(true);
+                setSelectedMealIds([]);
+                setMergeError(null);
+              }}
+            >
+              איחוד ארוחות
+            </button>
+          ) : (
+            <>
+              <p>בחר לפחות שתי ארוחות שתרצה להפוך לארוחה אחת.</p>
+              <div className="entry-actions">
+                <button
+                  type="button"
+                  disabled={mergeMeals.isPending}
+                  onClick={() => {
+                    setMergeMode(false);
+                    setSelectedMealIds([]);
+                    setMergeError(null);
+                  }}
+                >
+                  ביטול
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedMealIds.length < 2 || mergeMeals.isPending}
+                  onClick={() => {
+                    if (
+                      selectedMealIds.length >= 2 &&
+                      window.confirm(
+                        `לאחד ${selectedMealIds.length} ארוחות לארוחה אחת? הרכיבים והערכים יישמרו.`,
+                      )
+                    ) {
+                      mergeMeals.mutate(selectedMealIds);
+                    }
+                  }}
+                >
+                  {mergeMeals.isPending
+                    ? "מאחדים…"
+                    : `אחד ${selectedMealIds.length} ארוחות`}
+                </button>
+              </div>
+              {mergeError && <p className="form-error">{mergeError}</p>}
+            </>
+          )}
+        </section>
+      )}
+
       {meals.length === 0 ? (
         <div className="large-empty">
           <span>○</span>
@@ -386,6 +468,16 @@ export function DiaryPage(): React.JSX.Element {
                   <span />
                 </div>
                 <div className="diary-entry__body">
+                  {mergeMode && (
+                    <label className="meal-merge-choice">
+                      <input
+                        type="checkbox"
+                        checked={selectedMealIds.includes(meal.id)}
+                        onChange={() => toggleMergeMeal(meal.id)}
+                      />
+                      <span>בחר לאיחוד</span>
+                    </label>
+                  )}
                   <div>
                     <small>{categoryName(meal.category)}</small>
                     <h2>{meal.title}</h2>
@@ -399,15 +491,17 @@ export function DiaryPage(): React.JSX.Element {
                   {partial.length > 0 && (
                     <p className="partial-note">◐ סה״כ חלקי — מידע לא ידוע לא נכלל</p>
                   )}
-                  <div className="entry-actions">
-                    <Link to={`/diary/${meal.id}`}>פרטים</Link>
-                    <button type="button" onClick={() => void startEditing(meal.id)}>
-                      עריכה
-                    </button>
-                    <button onClick={() => favorite.mutate(meal.id)}>
-                      {meal.favorite ? "מועדף" : "שמירה כמועדף"}
-                    </button>
-                  </div>
+                  {!mergeMode && (
+                    <div className="entry-actions">
+                      <Link to={`/diary/${meal.id}`}>פרטים</Link>
+                      <button type="button" onClick={() => void startEditing(meal.id)}>
+                        עריכה
+                      </button>
+                      <button onClick={() => favorite.mutate(meal.id)}>
+                        {meal.favorite ? "מועדף" : "שמירה כמועדף"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </li>
             );
