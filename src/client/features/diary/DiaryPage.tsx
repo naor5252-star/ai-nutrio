@@ -506,6 +506,57 @@ export function DiaryPage(): React.JSX.Element {
           })}
         </ol>
       )}
+      {mergeMode && (
+        <>
+          <div className="meal-merge-dock-spacer" aria-hidden="true" />
+          <section className="meal-merge-dock" aria-label="אישור איחוד ארוחות">
+            <div className="meal-merge-dock__summary">
+              <strong>{selectedMealIds.length} ארוחות נבחרו</strong>
+              <span>
+                {selectedMealIds.length < 2
+                  ? "בחר לפחות שתי ארוחות"
+                  : "מוכן לאיחוד לארוחה אחת"}
+              </span>
+            </div>
+            <div className="meal-merge-dock__actions">
+              <button
+                type="button"
+                className="secondary-action"
+                disabled={mergeMeals.isPending}
+                onClick={() => {
+                  setMergeMode(false);
+                  setSelectedMealIds([]);
+                  setMergeError(null);
+                }}
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                className="primary-action"
+                disabled={selectedMealIds.length < 2 || mergeMeals.isPending}
+                onClick={() => {
+                  if (
+                    selectedMealIds.length >= 2 &&
+                    window.confirm(
+                      `לאחד ${selectedMealIds.length} ארוחות לארוחה אחת? הרכיבים והערכים יישמרו.`,
+                    )
+                  ) {
+                    mergeMeals.mutate(selectedMealIds);
+                  }
+                }}
+              >
+                {mergeMeals.isPending
+                  ? "מאחדים…"
+                  : selectedMealIds.length < 2
+                    ? "בחר עוד ארוחה"
+                    : `אחד ${selectedMealIds.length} ארוחות`}
+              </button>
+            </div>
+            {mergeError && <p className="form-error">{mergeError}</p>}
+          </section>
+        </>
+      )}
     </div>
   );
 }
