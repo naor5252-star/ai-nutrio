@@ -129,11 +129,7 @@ export async function runSmartPushNotifications(
   });
 }
 
-async function buildMessage(
-  env: RuntimeEnv,
-  user: NotificationUser,
-  slot: Slot,
-): Promise<string> {
+async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot): Promise<string> {
   const [target, meals, health] = await Promise.all([
     env.DB.prepare(
       `SELECT effective_calories, effective_protein_grams
@@ -358,7 +354,10 @@ function readText(value: unknown): string | null {
 
 function cleanText(value: string | null): string | null {
   if (!value) return null;
-  const cleaned = value.replace(/^["'`]+|["'`]+$/gu, "").replace(/\s+/gu, " ").trim();
+  const cleaned = value
+    .replace(/^["'`]+|["'`]+$/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
   return cleaned ? cleaned.slice(0, 220) : null;
 }
 

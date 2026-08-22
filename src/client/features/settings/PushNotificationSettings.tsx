@@ -87,9 +87,7 @@ export function PushNotificationSettings(): React.JSX.Element {
     setBusy(true);
     try {
       const permission =
-        Notification.permission === "granted"
-          ? "granted"
-          : await Notification.requestPermission();
+        Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
       if (permission !== "granted") {
         setMessage("כדי לקבל עדכונים צריך לאשר התראות לאפליקציה.");
         return;
@@ -154,9 +152,7 @@ export function PushNotificationSettings(): React.JSX.Element {
       setMessage("ההתראות כובו.");
       await queryClient.invalidateQueries({ queryKey: ["push"] });
     } catch (error) {
-      setMessage(
-        error instanceof ClientApiError ? error.messageHe : "לא הצלחנו לכבות את ההתראות.",
-      );
+      setMessage(error instanceof ClientApiError ? error.messageHe : "לא הצלחנו לכבות את ההתראות.");
     } finally {
       setBusy(false);
     }
@@ -170,9 +166,7 @@ export function PushNotificationSettings(): React.JSX.Element {
       setMessage("שעות ההתראות נשמרו.");
       await queryClient.invalidateQueries({ queryKey: ["push", "preferences"] });
     } catch (error) {
-      setMessage(
-        error instanceof ClientApiError ? error.messageHe : "לא הצלחנו לשמור את ההגדרות.",
-      );
+      setMessage(error instanceof ClientApiError ? error.messageHe : "לא הצלחנו לשמור את ההגדרות.");
     } finally {
       setBusy(false);
     }
@@ -256,9 +250,7 @@ export function PushNotificationSettings(): React.JSX.Element {
             label="אמצע היום"
             enabled={draft.afternoonEnabled}
             time={draft.afternoonTime}
-            onEnabled={(value) =>
-              setDraft((current) => ({ ...current, afternoonEnabled: value }))
-            }
+            onEnabled={(value) => setDraft((current) => ({ ...current, afternoonEnabled: value }))}
             onTime={(value) => setDraft((current) => ({ ...current, afternoonTime: value }))}
           />
         </div>
@@ -323,7 +315,11 @@ function ScheduleField(props: {
         />{" "}
         {props.label}
       </span>
-      <input type="time" value={props.time} onChange={(event) => props.onTime(event.target.value)} />
+      <input
+        type="time"
+        value={props.time}
+        onChange={(event) => props.onTime(event.target.value)}
+      />
     </label>
   );
 }

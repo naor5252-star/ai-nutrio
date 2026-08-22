@@ -92,14 +92,13 @@ async function createVapidHeaders(env: RuntimeEnv, endpoint: string): Promise<He
 
 async function importPrivateKey(value: string): Promise<CryptoKey> {
   const bytes = decode(value);
-  const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  return crypto.subtle.importKey(
-    "pkcs8",
-    data,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"],
-  );
+  const data = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+  return crypto.subtle.importKey("pkcs8", data, { name: "ECDSA", namedCurve: "P-256" }, false, [
+    "sign",
+  ]);
 }
 
 function encodeText(value: string): string {
