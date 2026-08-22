@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, ClientApiError } from "../../app/api";
+import { PushNotificationSettings } from "./PushNotificationSettings";
 
 type ProfileRow = {
   date_of_birth: string;
@@ -477,6 +478,7 @@ export function SettingsPage(): React.JSX.Element {
           </p>
         </details>
       </section>
+      <PushNotificationSettings />
       <section className="settings-section">
         <h2>התקנה באייפון</h2>
         <ol className="install-steps">

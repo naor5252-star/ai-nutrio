@@ -29,6 +29,7 @@ export async function runCleanup(env: RuntimeEnv, correlationId: string): Promis
       now,
     ),
     env.DB.prepare("DELETE FROM idempotency_records WHERE expires_at <= ?").bind(now),
+    env.DB.prepare("DELETE FROM push_notification_messages WHERE expires_at <= ?").bind(now),
     env.DB.prepare(
       "DELETE FROM auth_oauth_states WHERE expires_at <= ? OR used_at IS NOT NULL",
     ).bind(now),
