@@ -56,3 +56,45 @@ All metrics except `localDate` are optional.
 12. Confirm that Settings shows the last successful sync.
 
 The endpoint also accepts an optional `workouts` array containing `workoutType`, `startAt`, `endAt`, `durationMinutes`, and optional calories, distance, and heart-rate values.
+
+## iPhone + Garmin source-aware totals
+
+For cumulative daily metrics, the Shortcut can send separate values from the iPhone and Garmin Connect. Rega Tov stores the larger value for each metric so the same activity is not added twice.
+
+Supported source-aware cumulative metrics:
+
+- `steps`
+- `activeEnergyKcal`
+- `restingEnergyKcal`
+- `walkingRunningDistanceKm`
+- `flightsClimbed`
+
+Example:
+
+```json
+{
+  "schemaVersion": 1,
+  "localDate": "2026-08-21",
+  "generatedAt": "2026-08-21T20:00:00+03:00",
+  "timezone": "Asia/Jerusalem",
+  "sources": {
+    "iphone": {
+      "steps": 11420,
+      "activeEnergyKcal": 610,
+      "restingEnergyKcal": 1510,
+      "walkingRunningDistanceKm": 8.1,
+      "flightsClimbed": 6
+    },
+    "garminConnect": {
+      "steps": 10980,
+      "activeEnergyKcal": 645,
+      "restingEnergyKcal": 1540,
+      "walkingRunningDistanceKm": 7.9,
+      "flightsClimbed": 5
+    }
+  }
+}
+```
+
+The server independently selects the larger value for each cumulative metric.
+

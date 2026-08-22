@@ -34,6 +34,14 @@ const workoutSchema = z
     message: "שעת סיום האימון מוקדמת משעת ההתחלה",
   });
 
+const shortcutCumulativeMetricsSchema = z.object({
+  steps: z.number().int().min(0).max(200_000).nullable().optional(),
+  activeEnergyKcal: z.number().min(0).max(20_000).nullable().optional(),
+  restingEnergyKcal: z.number().min(0).max(20_000).nullable().optional(),
+  walkingRunningDistanceKm: z.number().min(0).max(1_000).nullable().optional(),
+  flightsClimbed: z.number().int().min(0).max(20_000).nullable().optional(),
+});
+
 const shortcutImportSchema = z.object({
   schemaVersion: z.literal(1).optional(),
   localDate: localDateSchema,
@@ -50,6 +58,12 @@ const shortcutImportSchema = z.object({
   waterMl: z.number().min(0).max(30_000).nullable().optional(),
   weightKg: z.number().min(20).max(500).nullable().optional(),
   bodyFatPercentage: z.number().min(1).max(80).nullable().optional(),
+  sources: z
+    .object({
+      iphone: shortcutCumulativeMetricsSchema.optional(),
+      garminConnect: shortcutCumulativeMetricsSchema.optional(),
+    })
+    .optional(),
   workouts: z.array(workoutSchema).max(50).optional(),
 });
 
@@ -140,6 +154,13 @@ type TrendWorkoutRow = {
   workout_minutes: number | null;
   workout_active_energy_kcal: number | null;
 };
+
+function maxMetric(...values: Array<number | null | undefined>): number | null {
+  const valid = values.filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value),
+  );
+  return valid.length > 0 ? Math.max(...valid) : null;
+}
 
 function shiftLocalDate(localDate: string, offsetDays: number): string {
   const value = new Date(`${localDate}T12:00:00Z`);
@@ -302,6 +323,38 @@ garminRoutes.post("/shortcut/import", async (context) => {
   const generatedAt = input.generatedAt ?? now;
   const timezone = input.timezone ?? "Asia/Jerusalem";
   const workouts = input.workouts ?? [];
+  const sourceMetrics = input.sources;
+
+  const effectiveSteps =
+    maxMetric(sourceMetrics?.iphone?.steps, sourceMetrics?.garminConnect?.steps) ??
+    input.steps ??
+    null;
+  const effectiveActiveEnergyKcal =
+    maxMetric(
+      sourceMetrics?.iphone?.activeEnergyKcal,
+      sourceMetrics?.garminConnect?.activeEnergyKcal,
+    ) ??
+    input.activeEnergyKcal ??
+    null;
+  const effectiveRestingEnergyKcal =
+    maxMetric(
+      sourceMetrics?.iphone?.restingEnergyKcal,
+      sourceMetrics?.garminConnect?.restingEnergyKcal,
+    ) ??
+    input.restingEnergyKcal ??
+    null;
+  const effectiveWalkingRunningDistanceKm =
+    maxMetric(
+      sourceMetrics?.iphone?.walkingRunningDistanceKm,
+      sourceMetrics?.garminConnect?.walkingRunningDistanceKm,
+    ) ??
+    input.walkingRunningDistanceKm ??
+    null;
+  const effectiveFlightsClimbed =
+    maxMetric(sourceMetrics?.iphone?.flightsClimbed, sourceMetrics?.garminConnect?.flightsClimbed) ??
+    input.flightsClimbed ??
+    null;
+
   const statements: D1PreparedStatement[] = [
     context.env.DB.prepare(
       `INSERT INTO health_daily_summaries (
@@ -336,18 +389,27 @@ garminRoutes.post("/shortcut/import", async (context) => {
       input.localDate,
       timezone,
       generatedAt,
-      input.steps ?? null,
-      input.activeEnergyKcal ?? null,
-      input.restingEnergyKcal ?? null,
-      input.walkingRunningDistanceKm ?? null,
-      input.flightsClimbed ?? null,
+      effectiveSteps,
+      effectiveActiveEnergyKcal,
+      effectiveRestingEnergyKcal,
+      effectiveWalkingRunningDistanceKm,
+      effectiveFlightsClimbed,
       input.restingHeartRateBpm ?? null,
       input.averageHeartRateBpm ?? null,
       input.sleepMinutes ?? null,
       input.waterMl ?? null,
       input.weightKg ?? null,
       input.bodyFatPercentage ?? null,
-      JSON.stringify(input),
+      JSON.stringify({
+        ...input,
+        effectiveDailyMetrics: {
+          steps: effectiveSteps,
+          activeEnergyKcal: effectiveActiveEnergyKcal,
+          restingEnergyKcal: effectiveRestingEnergyKcal,
+          walkingRunningDistanceKm: effectiveWalkingRunningDistanceKm,
+          flightsClimbed: effectiveFlightsClimbed,
+        },
+      }),
       now,
       now,
     ),
@@ -423,6 +485,13 @@ garminRoutes.post("/shortcut/import", async (context) => {
     ok: true,
     importedDailySummaries: 1,
     importedWorkouts: workouts.length,
+    effectiveDailySummary: {
+      steps: effectiveSteps,
+      activeEnergyKcal: effectiveActiveEnergyKcal,
+      restingEnergyKcal: effectiveRestingEnergyKcal,
+      walkingRunningDistanceKm: effectiveWalkingRunningDistanceKm,
+      flightsClimbed: effectiveFlightsClimbed,
+    },
     syncedAt: now,
   });
 });
