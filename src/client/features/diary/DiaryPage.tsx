@@ -513,9 +513,7 @@ export function DiaryPage(): React.JSX.Element {
             <div className="meal-merge-dock__summary">
               <strong>{selectedMealIds.length} ארוחות נבחרו</strong>
               <span>
-                {selectedMealIds.length < 2
-                  ? "בחר לפחות שתי ארוחות"
-                  : "מוכן לאיחוד לארוחה אחת"}
+                {selectedMealIds.length < 2 ? "בחר לפחות שתי ארוחות" : "מוכן לאיחוד לארוחה אחת"}
               </span>
             </div>
             <div className="meal-merge-dock__actions">

@@ -351,7 +351,10 @@ garminRoutes.post("/shortcut/import", async (context) => {
     input.walkingRunningDistanceKm ??
     null;
   const effectiveFlightsClimbed =
-    maxMetric(sourceMetrics?.iphone?.flightsClimbed, sourceMetrics?.garminConnect?.flightsClimbed) ??
+    maxMetric(
+      sourceMetrics?.iphone?.flightsClimbed,
+      sourceMetrics?.garminConnect?.flightsClimbed,
+    ) ??
     input.flightsClimbed ??
     null;
 

@@ -97,4 +97,3 @@ Example:
 ```
 
 The server independently selects the larger value for each cumulative metric.
-
