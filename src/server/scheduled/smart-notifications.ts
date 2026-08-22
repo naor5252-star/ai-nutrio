@@ -43,6 +43,15 @@ type HealthRow = {
   steps: number | null;
 };
 
+type PersonalContextRow = {
+  display_name: string | null;
+  primary_goal: string | null;
+};
+
+type RecentMessageRow = {
+  body: string;
+};
+
 export async function runSmartPushNotifications(
   env: RuntimeEnv,
   correlationId: string,
@@ -130,7 +139,7 @@ export async function runSmartPushNotifications(
 }
 
 async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot): Promise<string> {
-  const [target, meals, health] = await Promise.all([
+  const [target, meals, health, personalContext, recentMessages] = await Promise.all([
     env.DB.prepare(
       `SELECT effective_calories, effective_protein_grams
        FROM nutrition_target_versions
@@ -160,6 +169,25 @@ async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot)
     )
       .bind(user.id, slot.localDate)
       .first<HealthRow>(),
+    env.DB.prepare(
+      `SELECT u.display_name, up.primary_goal
+       FROM users u
+       LEFT JOIN user_profiles up ON up.user_id = u.id
+       WHERE u.id = ?
+       LIMIT 1`,
+    )
+      .bind(user.id)
+      .first<PersonalContextRow>(),
+    env.DB.prepare(
+      `SELECT body
+       FROM push_notification_messages
+       WHERE owner_user_id = ?
+         AND notification_type IN ('smart_morning', 'smart_afternoon', 'smart_evening')
+       ORDER BY created_at DESC
+       LIMIT 4`,
+    )
+      .bind(user.id)
+      .all<RecentMessageRow>(),
   ]);
 
   const intake = meals?.calories ?? 0;
@@ -174,16 +202,25 @@ async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot)
       : null;
   const balance = burned === null ? null : burned - intake;
 
+  const proteinPace =
+    targetProtein && targetProtein > 0 ? protein / targetProtein : null;
+  const intakePace =
+    targetCalories && targetCalories > 0 ? intake / targetCalories : null;
+  const angle = chooseNotificationAngle({
+    slot: slot.label,
+    localDate: slot.localDate,
+    proteinPace,
+    intakePace,
+    balance,
+    mealCount: meals?.meal_count ?? 0,
+  });
+  const name = firstName(personalContext?.display_name ?? null);
+
   const fallback = fallbackMessage({
     slot: slot.label,
-    intake,
-    protein,
-    targetCalories,
-    targetProtein,
-    remainingCalories,
-    remainingProtein,
-    burned,
-    balance,
+    localDate: slot.localDate,
+    angle,
+    name,
   });
 
   if (user.ai_personalized !== 1 || env.AI_ENABLED !== "true" || !isAiBinding(env.AI)) {
@@ -196,7 +233,7 @@ async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot)
         {
           role: "system",
           content:
-            "אתה המאמן האישי של אפליקציית 'רגע טוב'. נסח הודעת Push אחת בעברית טבעית, חמה וקצרה, עד 190 תווים. המטרה היא לכוון לפעולה אחת קטנה ורלוונטית עכשיו — לא להקריא דוח מספרי. השתמש בנתונים רק כדי להבין את המצב. אל תכתוב כמה נצרך וכמה נשאר אלא אם מספר אחד באמת מוסיף ערך. העדף ניסוחים כמו 'בארוחה הבאה כדאי לתת מקום לחלבון', 'נראה שהיום מתקדם מאוזן', 'אם אתה רעב בערב, בחר משהו קל ומשביע'. אל תהיה שיפוטי, אל תייצר לחץ, אל תמציא נתונים ואל תיתן ייעוץ רפואי.",
+            "אתה המאמן האישי של אפליקציית 'רגע טוב'. כתוב הודעת Push אחת בעברית טבעית, חמה וקצרה, עד 190 תווים. המספרים הם חומר רקע בשבילך — אל תקריא דוח ואל תכתוב כמה נצרך וכמה נשאר, אלא אם מספר יחיד באמת נחוץ. התמקד ברעיון אחד מועיל עכשיו: חיזוק הרגל טוב, הצעה קטנה לארוחה הבאה, הקשבה לרעב ושובע, או מחשבה חיובית לסיום היום. השתמש בשם הפרטי רק לפעמים, לא בכל הודעה. אל תחזור על ניסוח מההודעות האחרונות. אל תהיה שיפוטי, אל תדבר על 'פיצוי', אל תייצר לחץ, אל תמציא נתונים ואל תיתן ייעוץ רפואי.",
         },
         {
           role: "user",
@@ -213,12 +250,18 @@ async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot)
             calorieBalance: round(balance),
             steps: round(health?.steps ?? null),
             mealCount: meals?.meal_count ?? 0,
+            firstName: name,
+            primaryGoal: personalContext?.primary_goal ?? null,
+            coachingAngle: angle,
+            recentNotificationBodies: recentMessages.results.map((message) => message.body),
+            instruction:
+              "כתוב מסר אחד אישי ומעשי לפי coachingAngle. אל תסכם את כל הנתונים ואל תחזור על ההודעות האחרונות.",
             fallback,
           }),
         },
       ],
       max_tokens: 120,
-      temperature: 0.35,
+      temperature: 0.62,
     });
 
     return cleanText(readText(raw)) ?? fallback;
@@ -227,47 +270,118 @@ async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot)
   }
 }
 
-function fallbackMessage(input: {
-  slot: "morning" | "afternoon" | "evening";
-  intake: number;
-  protein: number;
-  targetCalories: number | null;
-  targetProtein: number | null;
-  remainingCalories: number | null;
-  remainingProtein: number | null;
-  burned: number | null;
-  balance: number | null;
-}): string {
-  const proteinPace =
-    input.targetProtein && input.targetProtein > 0 ? input.protein / input.targetProtein : null;
-  const intakePace =
-    input.targetCalories && input.targetCalories > 0 ? input.intake / input.targetCalories : null;
+type CoachingAngle =
+  | "gentle_start"
+  | "protein_nudge"
+  | "steady_momentum"
+  | "light_evening"
+  | "listen_to_hunger"
+  | "close_the_day"
+  | "fresh_start";
 
+function chooseNotificationAngle(input: {
+  slot: "morning" | "afternoon" | "evening";
+  localDate: string;
+  proteinPace: number | null;
+  intakePace: number | null;
+  balance: number | null;
+  mealCount: number;
+}): CoachingAngle {
   if (input.slot === "morning") {
-    return "בוקר טוב 🌱 תן לפתיחה של היום להיות פשוטה: משהו שאתה אוהב, עם חלבון טוב, כדי להגיע רגוע יותר לארוחה הבאה.";
+    return deterministicPick(
+      ["gentle_start", "fresh_start", "steady_momentum"] as const,
+      `${input.localDate}:morning`,
+    );
   }
 
   if (input.slot === "afternoon") {
-    if (proteinPace !== null && proteinPace < 0.45) {
-      return "אמצע היום 🌿 בארוחה הבאה כדאי לתת קצת יותר מקום לחלבון — זה יעזור לך לסיים את היום בצורה נוחה יותר.";
-    }
-
-    if (intakePace !== null && intakePace > 0.8) {
-      return "היום כבר די מלא מבחינת אוכל 🌿 אם תהיה רעב בהמשך, לך על משהו קל ומשביע במקום לנסות 'לפצות'.";
-    }
-
-    return "נראה שהיום מתקדם יפה 🌿 תמשיך רגיל, ובארוחה הבאה תבחר משהו שישאיר אותך שבע ונוח להמשך.";
+    if (input.proteinPace !== null && input.proteinPace < 0.45) return "protein_nudge";
+    if (input.intakePace !== null && input.intakePace > 0.82) return "light_evening";
+    return deterministicPick(
+      ["steady_momentum", "listen_to_hunger", "protein_nudge"] as const,
+      `${input.localDate}:afternoon:${input.mealCount}`,
+    );
   }
 
-  if (proteinPace !== null && proteinPace < 0.75) {
-    return "לקראת סיום היום 🌙 אם עוד בא לך משהו, עדיף לבחור נשנוש או ארוחה קטנה עם חלבון — בלי להעמיס.";
-  }
+  if (input.proteinPace !== null && input.proteinPace < 0.75) return "protein_nudge";
+  if (input.balance !== null && input.balance >= 0) return "listen_to_hunger";
+  return deterministicPick(
+    ["close_the_day", "steady_momentum", "fresh_start"] as const,
+    `${input.localDate}:evening`,
+  );
+}
 
-  if (input.balance !== null && input.balance >= 0) {
-    return "סיום טוב ליום 🌙 אין צורך לרדוף אחרי מספרים עכשיו. אם אתה שבע ומרגיש טוב — זה מקום מצוין לעצור בו.";
-  }
+function fallbackMessage(input: {
+  slot: "morning" | "afternoon" | "evening";
+  localDate: string;
+  angle: CoachingAngle;
+  name: string | null;
+}): string {
+  const prefix =
+    input.name && deterministicNumber(`${input.localDate}:${input.slot}:name`) % 3 === 0
+      ? `${input.name}, `
+      : "";
 
-  return "סיכום ערב 🌙 קח מהיום דבר אחד שעבד לך טוב, ותנסה לשחזר אותו גם מחר. לא צריך שכל יום יהיה מושלם.";
+  const messages: Record<CoachingAngle, readonly string[]> = {
+    gentle_start: [
+      "פתח את היום פשוט 🌱 משהו שאתה אוהב, עם חלבון טוב לידו, יכול לעשות את ההמשך הרבה יותר רגוע.",
+      "לא צריך בוקר מושלם ☀️ בחירה אחת משביעה ונוחה עכשיו מספיקה כדי להתחיל בכיוון טוב.",
+      "תן לבוקר לעבוד בשבילך 🌱 ארוחה פשוטה ומשביעה עכשיו יכולה לחסוך רעב חזק בהמשך.",
+    ],
+    protein_nudge: [
+      "בארוחה הבאה שווה לתת קצת יותר מקום לחלבון 🌿 בחירה קטנה עכשיו יכולה לסדר יפה את המשך היום.",
+      "רעיון קטן להמשך: בחר משהו עם בסיס חלבוני טוב, ותוסיף לידו את מה שבא לך באמת לאכול.",
+      "אם אתה מתכנן את הארוחה הבאה, תתחיל מהחלבון ומשם תבנה את השאר. פשוט וקל.",
+    ],
+    steady_momentum: [
+      "נראה שהיום מתקדם בקצב טוב 🌿 אין צורך לשנות הרבה — פשוט להמשיך עם בחירות שנוחות לך.",
+      "הכיוון טוב. בארוחה הבאה חפש בעיקר משהו שישביע אותך ושתהנה ממנו, בלי לסבך.",
+      "עוד יום שנבנה מבחירות קטנות 🌱 תמשיך רגיל; עקביות חשובה יותר מארוחה 'מושלמת'.",
+    ],
+    light_evening: [
+      "אם תהיה רעב בערב, לך על משהו קל ומשביע 🌙 אין צורך להפוך את שאר היום לפרויקט.",
+      "להמשך הערב: תן לרעב להוביל. אם צריך משהו, בחר מנה פשוטה ונוחה ולא מתוך תחושת חובה.",
+      "הערב יכול להישאר קליל 🌙 תאכל אם אתה רעב, ותבחר משהו שיעשה לך טוב בלי להעמיס.",
+    ],
+    listen_to_hunger: [
+      "בדוק רגע איך אתה מרגיש 🌿 אם אתה שבע, אפשר לעצור. אם אתה רעב, מגיעה לך ארוחה אמיתית — לא רק 'להחזיק מעמד'.",
+      "הרעב והשובע שלך חשובים יותר מעוד מספר על המסך. תן להם להוביל את הבחירה הבאה.",
+      "לפני הארוחה הבאה, רגע אחד של בדיקה: רעב באמת, חשק, או פשוט הרגל? אין תשובה 'נכונה'.",
+    ],
+    close_the_day: [
+      "סיום יום 🌙 קח איתך דבר אחד שעבד היום טוב ותנסה לשחזר אותו מחר. זה מספיק.",
+      "לא צריך לסכם את היום בציון. אם הייתה בחירה אחת שעשתה לך טוב — זה הדבר ששווה לזכור למחר.",
+      "היום נגמר, לא צריך לתקן אותו 🌙 מחר ממשיכים מאותה נקודה, עם עוד בחירה קטנה טובה.",
+    ],
+    fresh_start: [
+      "יום חדש, בלי חשבונות מאתמול 🌱 תבחר עכשיו דבר אחד שיעשה את היום קצת יותר קל.",
+      "מתחילים נקי ☀️ לא צריך תוכנית מושלמת — רק החלטה קטנה אחת שתשרת אותך היום.",
+      "היום לא צריך להיראות כמו אתמול. תתחיל מבחירה אחת טובה שמתאימה לך עכשיו.",
+    ],
+  };
+
+  const options = messages[input.angle];
+  return `${prefix}${deterministicPick(options, `${input.localDate}:${input.slot}:${input.angle}`)}`;
+}
+
+function firstName(displayName: string | null): string | null {
+  if (!displayName) return null;
+  const trimmed = displayName.trim();
+  if (!trimmed) return null;
+  return trimmed.split(/\s+/u)[0] ?? null;
+}
+
+function deterministicPick<T>(values: readonly T[], seed: string): T {
+  return values[deterministicNumber(seed) % values.length]!;
+}
+
+function deterministicNumber(seed: string): number {
+  let hash = 2166136261;
+  for (const char of seed) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 function dueSlot(user: NotificationUser, localDate: string, currentMinutes: number): Slot | null {
