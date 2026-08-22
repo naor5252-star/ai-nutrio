@@ -79,4 +79,3 @@ The app, trends, and widget continue reading the effective daily summary, so the
 For heart rate, sleep, water, weight, and body-fat percentage, values are not compared by maximum. A non-null value received by the effective summary is retained.
 
 The previous single-payload `sources.iphone` / `sources.garminConnect` format remains accepted for backward compatibility.
-

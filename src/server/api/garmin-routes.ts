@@ -362,12 +362,8 @@ garminRoutes.post("/shortcut/import", async (context) => {
     storedSourceRows = stored.results;
   }
 
-  const storedIphone = storedSourceRows.find(
-    (row) => row.source === SHORTCUT_DAILY_SOURCE_IPHONE,
-  );
-  const storedGarmin = storedSourceRows.find(
-    (row) => row.source === SHORTCUT_DAILY_SOURCE_GARMIN,
-  );
+  const storedIphone = storedSourceRows.find((row) => row.source === SHORTCUT_DAILY_SOURCE_IPHONE);
+  const storedGarmin = storedSourceRows.find((row) => row.source === SHORTCUT_DAILY_SOURCE_GARMIN);
   const storedCurrent =
     input.source === "iphone"
       ? storedIphone
