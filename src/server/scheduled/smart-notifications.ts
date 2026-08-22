@@ -293,7 +293,7 @@ function dueSlot(user: NotificationUser, localDate: string, currentMinutes: numb
     const targetMinutes = parseTime(candidate.time);
     if (targetMinutes === null) continue;
     const delta = currentMinutes - targetMinutes;
-    if (delta >= 0 && delta < 60) {
+    if (delta >= 0 && delta < 15) {
       return {
         type: candidate.type,
         label: candidate.label,

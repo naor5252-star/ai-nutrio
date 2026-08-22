@@ -18,6 +18,7 @@ const preferencesSchema = z.object({
   eveningEnabled: z.boolean(),
   eveningTime: timeSchema,
   aiPersonalized: z.boolean(),
+  timezone: z.string().min(1).max(100).optional(),
 });
 
 type PreferenceRow = {
@@ -115,6 +116,12 @@ pushRoutes.put("/preferences", requireCsrf, async (context) => {
       input.aiPersonalized ? 1 : 0,
     )
     .run();
+
+  if (input.timezone) {
+    await context.env.DB.prepare("UPDATE users SET timezone = ?, updated_at = ? WHERE id = ?")
+      .bind(input.timezone, now, userId)
+      .run();
+  }
 
   return context.json({ ok: true });
 });

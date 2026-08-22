@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, ClientApiError } from "../../app/api";
 
@@ -37,6 +37,7 @@ export function PushNotificationSettings(): React.JSX.Element {
   const [draft, setDraft] = useState<Draft>(defaults);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const preferencesLoaded = useRef(false);
 
   const config = useQuery({
     queryKey: ["push", "config"],
@@ -60,7 +61,24 @@ export function PushNotificationSettings(): React.JSX.Element {
       eveningTime: preferences.data.eveningTime,
       aiPersonalized: preferences.data.aiPersonalized,
     });
+    preferencesLoaded.current = true;
   }, [preferences.data]);
+
+  useEffect(() => {
+    if (!preferencesLoaded.current) return;
+
+    const timer = window.setTimeout(() => {
+      void savePreferences(draft).catch((error: unknown) => {
+        setMessage(
+          error instanceof ClientApiError
+            ? error.messageHe
+            : "לא הצלחנו לשמור אוטומטית את הגדרות ההתראות.",
+        );
+      });
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+  }, [draft]);
 
   const supported =
     "serviceWorker" in navigator && "Notification" in window && "PushManager" in window;
@@ -293,7 +311,7 @@ export function PushNotificationSettings(): React.JSX.Element {
         </p>
       )}
 
-      <small>הבדיקה מתבצעת פעם בשעה, לכן ההתראה יכולה להגיע עד כשעה אחרי הזמן שבחרת.</small>
+      <small>השינויים נשמרים אוטומטית. בדיקת ההתראות מתבצעת כל 5 דקות.</small>
     </section>
   );
 }
@@ -327,8 +345,15 @@ function ScheduleField(props: {
 async function savePreferences(draft: Draft): Promise<void> {
   await apiRequest("/api/v1/push/preferences", {
     method: "PUT",
-    body: JSON.stringify(draft),
+    body: JSON.stringify({
+      ...draft,
+      timezone: browserTimeZone(),
+    }),
   });
+}
+
+function browserTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Jerusalem";
 }
 
 function base64UrlToArrayBuffer(value: string): ArrayBuffer {

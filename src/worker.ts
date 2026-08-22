@@ -8,16 +8,21 @@ export { MealAnalysisWorkflow };
 export default {
   fetch: app.fetch,
   async scheduled(
-    _controller: ScheduledController,
+    controller: ScheduledController,
     env: Env,
     context: ExecutionContext,
   ): Promise<void> {
     const correlationId = crypto.randomUUID();
+
+    if (controller.cron === "*/5 * * * *") {
+      context.waitUntil(runSmartPushNotifications(env, correlationId));
+      return;
+    }
+
     context.waitUntil(
       Promise.all([
         runCleanup(env, correlationId),
         prepareDueSummaries(env, correlationId),
-        runSmartPushNotifications(env, correlationId),
       ]).then(() => undefined),
     );
   },
