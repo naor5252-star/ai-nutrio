@@ -112,10 +112,7 @@ async function describePushFailure(response: Response): Promise<string> {
   return `${reason} · HTTP ${response.status}${apnsId ? ` · APNs ${apnsId}` : ""}`;
 }
 
-async function importPrivateKey(
-  privateValue: string,
-  publicValue: string,
-): Promise<CryptoKey> {
+async function importPrivateKey(privateValue: string, publicValue: string): Promise<CryptoKey> {
   const privateBytes = decode(privateValue);
   const publicBytes = decode(publicValue);
 
@@ -134,13 +131,9 @@ async function importPrivateKey(
       key_ops: ["sign"],
     };
 
-    return crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"],
-    );
+    return crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, [
+      "sign",
+    ]);
   }
 
   const data = privateBytes.buffer.slice(
@@ -148,13 +141,9 @@ async function importPrivateKey(
     privateBytes.byteOffset + privateBytes.byteLength,
   ) as ArrayBuffer;
 
-  return crypto.subtle.importKey(
-    "pkcs8",
-    data,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"],
-  );
+  return crypto.subtle.importKey("pkcs8", data, { name: "ECDSA", namedCurve: "P-256" }, false, [
+    "sign",
+  ]);
 }
 
 function encodeText(value: string): string {
