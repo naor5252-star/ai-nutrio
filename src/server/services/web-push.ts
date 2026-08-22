@@ -74,11 +74,11 @@ async function createVapidHeaders(env: RuntimeEnv, endpoint: string): Promise<He
     JSON.stringify({
       aud: new URL(endpoint).origin,
       exp: Math.floor(Date.now() / 1_000) + 12 * 60 * 60,
-      sub: env.APP_BASE_URL.replace(/\/$/u, ""),
+      sub: new URL(env.APP_BASE_URL.trim()).origin,
     }),
   );
   const unsigned = `${header}.${payload}`;
-  const key = await importPrivateKey(privateKey);
+  const key = await importPrivateKey(privateKey, publicKey);
   const signature = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
     key,
@@ -90,7 +90,6 @@ async function createVapidHeaders(env: RuntimeEnv, endpoint: string): Promise<He
   headers.set("TTL", "60");
   headers.set("Urgency", "normal");
   headers.set("Authorization", `vapid t=${jwt}, k=${publicKey}`);
-  headers.set("Crypto-Key", `p256ecdsa=${publicKey}`);
   return headers;
 }
 
@@ -113,15 +112,49 @@ async function describePushFailure(response: Response): Promise<string> {
   return `${reason} · HTTP ${response.status}${apnsId ? ` · APNs ${apnsId}` : ""}`;
 }
 
-async function importPrivateKey(value: string): Promise<CryptoKey> {
-  const bytes = decode(value);
-  const data = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
+async function importPrivateKey(
+  privateValue: string,
+  publicValue: string,
+): Promise<CryptoKey> {
+  const privateBytes = decode(privateValue);
+  const publicBytes = decode(publicValue);
+
+  if (privateBytes.length === 32) {
+    if (publicBytes.length !== 65 || publicBytes[0] !== 0x04) {
+      throw new Error("Invalid VAPID P-256 public key");
+    }
+
+    const jwk: JsonWebKey = {
+      kty: "EC",
+      crv: "P-256",
+      x: encodeBytes(publicBytes.slice(1, 33)),
+      y: encodeBytes(publicBytes.slice(33, 65)),
+      d: encodeBytes(privateBytes),
+      ext: true,
+      key_ops: ["sign"],
+    };
+
+    return crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+  }
+
+  const data = privateBytes.buffer.slice(
+    privateBytes.byteOffset,
+    privateBytes.byteOffset + privateBytes.byteLength,
   ) as ArrayBuffer;
-  return crypto.subtle.importKey("pkcs8", data, { name: "ECDSA", namedCurve: "P-256" }, false, [
-    "sign",
-  ]);
+
+  return crypto.subtle.importKey(
+    "pkcs8",
+    data,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"],
+  );
 }
 
 function encodeText(value: string): string {
