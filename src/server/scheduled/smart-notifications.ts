@@ -202,10 +202,8 @@ async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot)
       : null;
   const balance = burned === null ? null : burned - intake;
 
-  const proteinPace =
-    targetProtein && targetProtein > 0 ? protein / targetProtein : null;
-  const intakePace =
-    targetCalories && targetCalories > 0 ? intake / targetCalories : null;
+  const proteinPace = targetProtein && targetProtein > 0 ? protein / targetProtein : null;
+  const intakePace = targetCalories && targetCalories > 0 ? intake / targetCalories : null;
   const angle = chooseNotificationAngle({
     slot: slot.label,
     localDate: slot.localDate,
