@@ -196,7 +196,7 @@ async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot)
         {
           role: "system",
           content:
-            "אתה המאמן הקצר של אפליקציית 'רגע טוב'. נסח הודעת Push אחת בעברית, עד 180 תווים. היה תומך, ענייני ולא שיפוטי. אל תמציא נתונים ואל תיתן ייעוץ רפואי.",
+            "אתה המאמן האישי של אפליקציית 'רגע טוב'. נסח הודעת Push אחת בעברית טבעית, חמה וקצרה, עד 190 תווים. המטרה היא לכוון לפעולה אחת קטנה ורלוונטית עכשיו — לא להקריא דוח מספרי. השתמש בנתונים רק כדי להבין את המצב. אל תכתוב כמה נצרך וכמה נשאר אלא אם מספר אחד באמת מוסיף ערך. העדף ניסוחים כמו 'בארוחה הבאה כדאי לתת מקום לחלבון', 'נראה שהיום מתקדם מאוזן', 'אם אתה רעב בערב, בחר משהו קל ומשביע'. אל תהיה שיפוטי, אל תייצר לחץ, אל תמציא נתונים ואל תיתן ייעוץ רפואי.",
         },
         {
           role: "user",
@@ -238,29 +238,36 @@ function fallbackMessage(input: {
   burned: number | null;
   balance: number | null;
 }): string {
+  const proteinPace =
+    input.targetProtein && input.targetProtein > 0 ? input.protein / input.targetProtein : null;
+  const intakePace =
+    input.targetCalories && input.targetCalories > 0 ? input.intake / input.targetCalories : null;
+
   if (input.slot === "morning") {
-    if (input.targetCalories !== null && input.targetProtein !== null) {
-      return `בוקר טוב 🌱 היעד להיום: ${Math.round(input.targetCalories)} קל׳ ו־${Math.round(input.targetProtein)} ג׳ חלבון. נתקדם בקצב נוח.`;
-    }
-    return "בוקר טוב 🌱 יום חדש ברגע טוב. אפשר להתחיל בארוחה שתיתן לך אנרגיה וחלבון.";
+    return "בוקר טוב 🌱 תן לפתיחה של היום להיות פשוטה: משהו שאתה אוהב, עם חלבון טוב, כדי להגיע רגוע יותר לארוחה הבאה.";
   }
 
   if (input.slot === "afternoon") {
-    if (input.remainingCalories !== null && input.remainingProtein !== null) {
-      return `עד עכשיו: ${Math.round(input.intake)} קל׳ ו־${Math.round(input.protein)} ג׳ חלבון. נשארו כ־${Math.round(input.remainingCalories)} קל׳ ו־${Math.round(input.remainingProtein)} ג׳ חלבון.`;
+    if (proteinPace !== null && proteinPace < 0.45) {
+      return "אמצע היום 🌿 בארוחה הבאה כדאי לתת קצת יותר מקום לחלבון — זה יעזור לך לסיים את היום בצורה נוחה יותר.";
     }
-    return `אמצע היום 🌿 נרשמו ${Math.round(input.intake)} קל׳ עד עכשיו.`;
+
+    if (intakePace !== null && intakePace > 0.8) {
+      return "היום כבר די מלא מבחינת אוכל 🌿 אם תהיה רעב בהמשך, לך על משהו קל ומשביע במקום לנסות 'לפצות'.";
+    }
+
+    return "נראה שהיום מתקדם יפה 🌿 תמשיך רגיל, ובארוחה הבאה תבחר משהו שישאיר אותך שבע ונוח להמשך.";
   }
 
-  if (input.burned !== null && input.balance !== null) {
-    const balanceText =
-      input.balance >= 0
-        ? `גירעון של כ־${Math.round(input.balance)} קל׳`
-        : `עודף של כ־${Math.round(Math.abs(input.balance))} קל׳`;
-    return `סיכום ערב 🌙 צרכת ${Math.round(input.intake)} קל׳ ונשרפו כ־${Math.round(input.burned)} קל׳ — כרגע ${balanceText}.`;
+  if (proteinPace !== null && proteinPace < 0.75) {
+    return "לקראת סיום היום 🌙 אם עוד בא לך משהו, עדיף לבחור נשנוש או ארוחה קטנה עם חלבון — בלי להעמיס.";
   }
 
-  return `סיכום ערב 🌙 נרשמו היום ${Math.round(input.intake)} קל׳ ו־${Math.round(input.protein)} ג׳ חלבון.`;
+  if (input.balance !== null && input.balance >= 0) {
+    return "סיום טוב ליום 🌙 אין צורך לרדוף אחרי מספרים עכשיו. אם אתה שבע ומרגיש טוב — זה מקום מצוין לעצור בו.";
+  }
+
+  return "סיכום ערב 🌙 קח מהיום דבר אחד שעבד לך טוב, ותנסה לשחזר אותו גם מחר. לא צריך שכל יום יהיה מושלם.";
 }
 
 function dueSlot(user: NotificationUser, localDate: string, currentMinutes: number): Slot | null {
