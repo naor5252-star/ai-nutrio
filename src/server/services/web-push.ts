@@ -148,9 +148,7 @@ async function importPrivateKey(privateValue: string, publicValue: string): Prom
 
 function vapidSubject(value: string): string {
   const trimmed = value.trim();
-  const candidate = /^[a-z][a-z0-9+.-]*:\/\//iu.test(trimmed)
-    ? trimmed
-    : `https://${trimmed}`;
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//iu.test(trimmed) ? trimmed : `https://${trimmed}`;
 
   try {
     const url = new URL(candidate);
