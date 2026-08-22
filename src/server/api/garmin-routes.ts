@@ -7,6 +7,8 @@ import { randomToken, secureUuid, sha256Hex } from "../security/crypto";
 import { AppError } from "./errors";
 
 const SHORTCUT_PROVIDER = "apple_health_shortcut";
+const SHORTCUT_DAILY_SOURCE_IPHONE = "apple_health_shortcut:iphone";
+const SHORTCUT_DAILY_SOURCE_GARMIN = "apple_health_shortcut:garmin_connect";
 const MAX_IMPORT_BYTES = 128 * 1024;
 const MAX_WIDGET_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -34,6 +36,8 @@ const workoutSchema = z
     message: "שעת סיום האימון מוקדמת משעת ההתחלה",
   });
 
+const shortcutSourceSchema = z.enum(["iphone", "garminConnect"]);
+
 const shortcutCumulativeMetricsSchema = z.object({
   steps: z.number().int().min(0).max(200_000).nullable().optional(),
   activeEnergyKcal: z.number().min(0).max(20_000).nullable().optional(),
@@ -44,6 +48,7 @@ const shortcutCumulativeMetricsSchema = z.object({
 
 const shortcutImportSchema = z.object({
   schemaVersion: z.literal(1).optional(),
+  source: shortcutSourceSchema.optional(),
   localDate: localDateSchema,
   generatedAt: dateTimeSchema.optional(),
   timezone: z.string().min(1).max(100).optional(),
@@ -110,6 +115,15 @@ type ShortcutConnection = {
   last_error_code: string | null;
 };
 
+type ShortcutDailySourceRow = {
+  source: string;
+  steps: number | null;
+  active_energy_kcal: number | null;
+  resting_energy_kcal: number | null;
+  walking_running_distance_km: number | null;
+  flights_climbed: number | null;
+};
+
 type DailySummary = {
   local_date: string;
   steps: number | null;
@@ -154,6 +168,10 @@ type TrendWorkoutRow = {
   workout_minutes: number | null;
   workout_active_energy_kcal: number | null;
 };
+
+function shortcutDailySource(source: z.infer<typeof shortcutSourceSchema>): string {
+  return source === "iphone" ? SHORTCUT_DAILY_SOURCE_IPHONE : SHORTCUT_DAILY_SOURCE_GARMIN;
+}
 
 function maxMetric(...values: Array<number | null | undefined>): number | null {
   const valid = values.filter(
@@ -325,40 +343,147 @@ garminRoutes.post("/shortcut/import", async (context) => {
   const workouts = input.workouts ?? [];
   const sourceMetrics = input.sources;
 
-  const effectiveSteps =
-    maxMetric(sourceMetrics?.iphone?.steps, sourceMetrics?.garminConnect?.steps) ??
-    input.steps ??
-    null;
-  const effectiveActiveEnergyKcal =
-    maxMetric(
-      sourceMetrics?.iphone?.activeEnergyKcal,
-      sourceMetrics?.garminConnect?.activeEnergyKcal,
-    ) ??
-    input.activeEnergyKcal ??
-    null;
-  const effectiveRestingEnergyKcal =
-    maxMetric(
-      sourceMetrics?.iphone?.restingEnergyKcal,
-      sourceMetrics?.garminConnect?.restingEnergyKcal,
-    ) ??
-    input.restingEnergyKcal ??
-    null;
-  const effectiveWalkingRunningDistanceKm =
-    maxMetric(
-      sourceMetrics?.iphone?.walkingRunningDistanceKm,
-      sourceMetrics?.garminConnect?.walkingRunningDistanceKm,
-    ) ??
-    input.walkingRunningDistanceKm ??
-    null;
-  const effectiveFlightsClimbed =
-    maxMetric(
-      sourceMetrics?.iphone?.flightsClimbed,
-      sourceMetrics?.garminConnect?.flightsClimbed,
-    ) ??
-    input.flightsClimbed ??
-    null;
+  let storedSourceRows: ShortcutDailySourceRow[] = [];
+  if (input.source) {
+    const stored = await context.env.DB.prepare(
+      `SELECT source, steps, active_energy_kcal, resting_energy_kcal,
+              walking_running_distance_km, flights_climbed
+         FROM health_daily_summaries
+        WHERE owner_user_id = ? AND local_date = ?
+          AND source IN (?, ?)`,
+    )
+      .bind(
+        connection.user_id,
+        input.localDate,
+        SHORTCUT_DAILY_SOURCE_IPHONE,
+        SHORTCUT_DAILY_SOURCE_GARMIN,
+      )
+      .all<ShortcutDailySourceRow>();
+    storedSourceRows = stored.results;
+  }
 
-  const statements: D1PreparedStatement[] = [
+  const storedIphone = storedSourceRows.find(
+    (row) => row.source === SHORTCUT_DAILY_SOURCE_IPHONE,
+  );
+  const storedGarmin = storedSourceRows.find(
+    (row) => row.source === SHORTCUT_DAILY_SOURCE_GARMIN,
+  );
+  const storedCurrent =
+    input.source === "iphone"
+      ? storedIphone
+      : input.source === "garminConnect"
+        ? storedGarmin
+        : null;
+  const storedOther =
+    input.source === "iphone"
+      ? storedGarmin
+      : input.source === "garminConnect"
+        ? storedIphone
+        : null;
+
+  const currentSteps = input.steps ?? storedCurrent?.steps ?? null;
+  const currentActiveEnergyKcal =
+    input.activeEnergyKcal ?? storedCurrent?.active_energy_kcal ?? null;
+  const currentRestingEnergyKcal =
+    input.restingEnergyKcal ?? storedCurrent?.resting_energy_kcal ?? null;
+  const currentWalkingRunningDistanceKm =
+    input.walkingRunningDistanceKm ?? storedCurrent?.walking_running_distance_km ?? null;
+  const currentFlightsClimbed = input.flightsClimbed ?? storedCurrent?.flights_climbed ?? null;
+
+  const effectiveSteps = input.source
+    ? maxMetric(currentSteps, storedOther?.steps)
+    : (maxMetric(sourceMetrics?.iphone?.steps, sourceMetrics?.garminConnect?.steps) ??
+      input.steps ??
+      null);
+  const effectiveActiveEnergyKcal = input.source
+    ? maxMetric(currentActiveEnergyKcal, storedOther?.active_energy_kcal)
+    : (maxMetric(
+        sourceMetrics?.iphone?.activeEnergyKcal,
+        sourceMetrics?.garminConnect?.activeEnergyKcal,
+      ) ??
+      input.activeEnergyKcal ??
+      null);
+  const effectiveRestingEnergyKcal = input.source
+    ? maxMetric(currentRestingEnergyKcal, storedOther?.resting_energy_kcal)
+    : (maxMetric(
+        sourceMetrics?.iphone?.restingEnergyKcal,
+        sourceMetrics?.garminConnect?.restingEnergyKcal,
+      ) ??
+      input.restingEnergyKcal ??
+      null);
+  const effectiveWalkingRunningDistanceKm = input.source
+    ? maxMetric(currentWalkingRunningDistanceKm, storedOther?.walking_running_distance_km)
+    : (maxMetric(
+        sourceMetrics?.iphone?.walkingRunningDistanceKm,
+        sourceMetrics?.garminConnect?.walkingRunningDistanceKm,
+      ) ??
+      input.walkingRunningDistanceKm ??
+      null);
+  const effectiveFlightsClimbed = input.source
+    ? maxMetric(currentFlightsClimbed, storedOther?.flights_climbed)
+    : (maxMetric(
+        sourceMetrics?.iphone?.flightsClimbed,
+        sourceMetrics?.garminConnect?.flightsClimbed,
+      ) ??
+      input.flightsClimbed ??
+      null);
+
+  const statements: D1PreparedStatement[] = [];
+
+  if (input.source) {
+    statements.push(
+      context.env.DB.prepare(
+        `INSERT INTO health_daily_summaries (
+           id, owner_user_id, source, local_date, timezone, generated_at,
+           steps, active_energy_kcal, resting_energy_kcal,
+           walking_running_distance_km, flights_climbed,
+           resting_heart_rate_bpm, average_heart_rate_bpm,
+           sleep_minutes, water_ml, weight_kg, body_fat_percentage,
+           raw_json, imported_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(owner_user_id, source, local_date) DO UPDATE SET
+           timezone = excluded.timezone,
+           generated_at = excluded.generated_at,
+           steps = COALESCE(excluded.steps, health_daily_summaries.steps),
+           active_energy_kcal = COALESCE(excluded.active_energy_kcal, health_daily_summaries.active_energy_kcal),
+           resting_energy_kcal = COALESCE(excluded.resting_energy_kcal, health_daily_summaries.resting_energy_kcal),
+           walking_running_distance_km = COALESCE(excluded.walking_running_distance_km, health_daily_summaries.walking_running_distance_km),
+           flights_climbed = COALESCE(excluded.flights_climbed, health_daily_summaries.flights_climbed),
+           resting_heart_rate_bpm = COALESCE(excluded.resting_heart_rate_bpm, health_daily_summaries.resting_heart_rate_bpm),
+           average_heart_rate_bpm = COALESCE(excluded.average_heart_rate_bpm, health_daily_summaries.average_heart_rate_bpm),
+           sleep_minutes = COALESCE(excluded.sleep_minutes, health_daily_summaries.sleep_minutes),
+           water_ml = COALESCE(excluded.water_ml, health_daily_summaries.water_ml),
+           weight_kg = COALESCE(excluded.weight_kg, health_daily_summaries.weight_kg),
+           body_fat_percentage = COALESCE(excluded.body_fat_percentage, health_daily_summaries.body_fat_percentage),
+           raw_json = excluded.raw_json,
+           imported_at = excluded.imported_at,
+           updated_at = excluded.updated_at`,
+      ).bind(
+        secureUuid(),
+        connection.user_id,
+        shortcutDailySource(input.source),
+        input.localDate,
+        timezone,
+        generatedAt,
+        input.steps ?? null,
+        input.activeEnergyKcal ?? null,
+        input.restingEnergyKcal ?? null,
+        input.walkingRunningDistanceKm ?? null,
+        input.flightsClimbed ?? null,
+        input.restingHeartRateBpm ?? null,
+        input.averageHeartRateBpm ?? null,
+        input.sleepMinutes ?? null,
+        input.waterMl ?? null,
+        input.weightKg ?? null,
+        input.bodyFatPercentage ?? null,
+        JSON.stringify(input),
+        now,
+        now,
+      ),
+    );
+  }
+
+  statements.push(
     context.env.DB.prepare(
       `INSERT INTO health_daily_summaries (
          id, owner_user_id, source, local_date, timezone, generated_at,
@@ -376,12 +501,12 @@ garminRoutes.post("/shortcut/import", async (context) => {
          resting_energy_kcal = excluded.resting_energy_kcal,
          walking_running_distance_km = excluded.walking_running_distance_km,
          flights_climbed = excluded.flights_climbed,
-         resting_heart_rate_bpm = excluded.resting_heart_rate_bpm,
-         average_heart_rate_bpm = excluded.average_heart_rate_bpm,
-         sleep_minutes = excluded.sleep_minutes,
-         water_ml = excluded.water_ml,
-         weight_kg = excluded.weight_kg,
-         body_fat_percentage = excluded.body_fat_percentage,
+         resting_heart_rate_bpm = COALESCE(excluded.resting_heart_rate_bpm, health_daily_summaries.resting_heart_rate_bpm),
+         average_heart_rate_bpm = COALESCE(excluded.average_heart_rate_bpm, health_daily_summaries.average_heart_rate_bpm),
+         sleep_minutes = COALESCE(excluded.sleep_minutes, health_daily_summaries.sleep_minutes),
+         water_ml = COALESCE(excluded.water_ml, health_daily_summaries.water_ml),
+         weight_kg = COALESCE(excluded.weight_kg, health_daily_summaries.weight_kg),
+         body_fat_percentage = COALESCE(excluded.body_fat_percentage, health_daily_summaries.body_fat_percentage),
          raw_json = excluded.raw_json,
          imported_at = excluded.imported_at,
          updated_at = excluded.updated_at`,
@@ -416,7 +541,7 @@ garminRoutes.post("/shortcut/import", async (context) => {
       now,
       now,
     ),
-  ];
+  );
 
   for (const workout of workouts) {
     const sourceRecordId =
@@ -486,6 +611,7 @@ garminRoutes.post("/shortcut/import", async (context) => {
 
   return context.json({
     ok: true,
+    receivedSource: input.source ?? null,
     importedDailySummaries: 1,
     importedWorkouts: workouts.length,
     effectiveDailySummary: {

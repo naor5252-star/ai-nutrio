@@ -57,11 +57,16 @@ All metrics except `localDate` are optional.
 
 The endpoint also accepts an optional `workouts` array containing `workoutType`, `startAt`, `endAt`, `durationMinutes`, and optional calories, distance, and heart-rate values.
 
-## iPhone + Garmin source-aware totals
+## Two separate shortcuts: iPhone + Garmin Connect
 
-For cumulative daily metrics, the Shortcut can send separate values from the iPhone and Garmin Connect. Rega Tov stores the larger value for each metric so the same activity is not added twice.
+Use two nearly identical iPhone Shortcuts. Each Shortcut sends one top-level `source` field that applies to the entire daily payload.
 
-Supported source-aware cumulative metrics:
+Use exactly these values:
+
+- iPhone Shortcut: `source = iphone`
+- Garmin Connect Shortcut: `source = garminConnect`
+
+Rega Tov stores the two daily sources separately. For cumulative daily metrics it keeps an effective daily summary using the larger value from the two sources independently:
 
 - `steps`
 - `activeEnergyKcal`
@@ -69,31 +74,9 @@ Supported source-aware cumulative metrics:
 - `walkingRunningDistanceKm`
 - `flightsClimbed`
 
-Example:
+The app, trends, and widget continue reading the effective daily summary, so they automatically show the selected maximum.
 
-```json
-{
-  "schemaVersion": 1,
-  "localDate": "2026-08-21",
-  "generatedAt": "2026-08-21T20:00:00+03:00",
-  "timezone": "Asia/Jerusalem",
-  "sources": {
-    "iphone": {
-      "steps": 11420,
-      "activeEnergyKcal": 610,
-      "restingEnergyKcal": 1510,
-      "walkingRunningDistanceKm": 8.1,
-      "flightsClimbed": 6
-    },
-    "garminConnect": {
-      "steps": 10980,
-      "activeEnergyKcal": 645,
-      "restingEnergyKcal": 1540,
-      "walkingRunningDistanceKm": 7.9,
-      "flightsClimbed": 5
-    }
-  }
-}
-```
+For heart rate, sleep, water, weight, and body-fat percentage, values are not compared by maximum. A non-null value received by the effective summary is retained.
 
-The server independently selects the larger value for each cumulative metric.
+The previous single-payload `sources.iphone` / `sources.garminConnect` format remains accepted for backward compatibility.
+
