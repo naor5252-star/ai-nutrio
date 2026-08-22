@@ -31,7 +31,6 @@ jobs:
       - name: Format changed files
         run: |
           npx prettier --write \
-            migrations/0004_smart_push_notifications.sql \
             public/sw.js \
             src/client/features/settings/PushNotificationSettings.tsx \
             src/client/features/settings/SettingsPage.tsx \
