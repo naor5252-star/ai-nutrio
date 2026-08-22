@@ -101,7 +101,7 @@ export function PushNotificationSettings(): React.JSX.Element {
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: base64UrlToUint8Array(config.data.vapidPublicKey),
+          applicationServerKey: base64UrlToArrayBuffer(config.data.vapidPublicKey),
         });
       }
 
@@ -335,15 +335,16 @@ async function savePreferences(draft: Draft): Promise<void> {
   });
 }
 
-function base64UrlToUint8Array(value: string): Uint8Array {
+function base64UrlToArrayBuffer(value: string): ArrayBuffer {
   const normalized = value.replace(/-/gu, "+").replace(/_/gu, "/");
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
   const binary = atob(padded);
-  const output = new Uint8Array(binary.length);
+  const buffer = new ArrayBuffer(binary.length);
+  const output = new Uint8Array(buffer);
   for (let index = 0; index < binary.length; index += 1) {
     output[index] = binary.charCodeAt(index);
   }
-  return output;
+  return buffer;
 }
 
 function isIos(): boolean {
