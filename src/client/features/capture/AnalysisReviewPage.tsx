@@ -951,8 +951,10 @@ function refreshedProportionalBasis(
   previous: EditableItem,
   next: EditableItem,
   changes: Partial<EditableItem>,
-): ProportionalNutritionBasis | null | undefined {
-  if (next.productBasis || !previous.proportionalBasis) return next.proportionalBasis;
+): ProportionalNutritionBasis | null {
+  if (next.productBasis || !previous.proportionalBasis) {
+    return next.proportionalBasis ?? null;
+  }
 
   const nutrientChanged =
     "calories" in changes ||
