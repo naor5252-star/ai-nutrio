@@ -50,8 +50,16 @@ export function PushNotificationSettings(): React.JSX.Element {
 
   useEffect(() => {
     if (!preferences.data) return;
-    const { activeSubscriptions: _activeSubscriptions, ...next } = preferences.data;
-    setDraft(next);
+    setDraft({
+      pushEnabled: preferences.data.pushEnabled,
+      morningEnabled: preferences.data.morningEnabled,
+      morningTime: preferences.data.morningTime,
+      afternoonEnabled: preferences.data.afternoonEnabled,
+      afternoonTime: preferences.data.afternoonTime,
+      eveningEnabled: preferences.data.eveningEnabled,
+      eveningTime: preferences.data.eveningTime,
+      aiPersonalized: preferences.data.aiPersonalized,
+    });
   }, [preferences.data]);
 
   const supported =
