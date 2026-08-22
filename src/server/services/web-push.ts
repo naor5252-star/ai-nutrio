@@ -74,7 +74,7 @@ async function createVapidHeaders(env: RuntimeEnv, endpoint: string): Promise<He
     JSON.stringify({
       aud: new URL(endpoint).origin,
       exp: Math.floor(Date.now() / 1_000) + 12 * 60 * 60,
-      sub: new URL(env.APP_BASE_URL.trim()).origin,
+      sub: vapidSubject(env.APP_BASE_URL),
     }),
   );
   const unsigned = `${header}.${payload}`;
@@ -144,6 +144,22 @@ async function importPrivateKey(privateValue: string, publicValue: string): Prom
   return crypto.subtle.importKey("pkcs8", data, { name: "ECDSA", namedCurve: "P-256" }, false, [
     "sign",
   ]);
+}
+
+function vapidSubject(value: string): string {
+  const trimmed = value.trim();
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//iu.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol === "https:") return url.origin;
+  } catch {
+    // Fall back to the canonical production origin below.
+  }
+
+  return "https://ai-nutrition-advisor.naor-5252.workers.dev";
 }
 
 function encodeText(value: string): string {
