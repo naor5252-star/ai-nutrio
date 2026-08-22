@@ -212,10 +212,11 @@ pushRoutes.post("/test", requireCsrf, async (context) => {
 
   const result = await sendPayloadlessPushToUser(context.env, userId);
   if (result.sent === 0) {
+    const detail = result.failures[0] ?? "לא התקבלה סיבת שגיאה משירות ה-Push";
     throw new AppError({
       status: 409,
-      code: "PUSH_NO_ACTIVE_SUBSCRIPTION",
-      messageHe: "לא נמצא מכשיר פעיל לקבלת ההתראה. הפעל התראות באייפון ונסה שוב.",
+      code: "PUSH_DELIVERY_FAILED",
+      messageHe: `שליחת ההתראה נכשלה: ${detail}`,
     });
   }
 

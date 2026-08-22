@@ -10,6 +10,7 @@ export type PushSendResult = {
   sent: number;
   invalidated: number;
   failed: number;
+  failures: string[];
 };
 
 export async function sendPayloadlessPushToUser(
@@ -17,7 +18,7 @@ export async function sendPayloadlessPushToUser(
   userId: string,
 ): Promise<PushSendResult> {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
-    return { sent: 0, invalidated: 0, failed: 0 };
+    return { sent: 0, invalidated: 0, failed: 0, failures: [] };
   }
 
   const subscriptions = await env.DB.prepare(
@@ -31,6 +32,7 @@ export async function sendPayloadlessPushToUser(
   let sent = 0;
   let invalidated = 0;
   let failed = 0;
+  const failures: string[] = [];
 
   for (const subscription of subscriptions.results) {
     try {
@@ -51,18 +53,20 @@ export async function sendPayloadlessPushToUser(
           .run();
       } else {
         failed += 1;
+        failures.push(await describePushFailure(response));
       }
-    } catch {
+    } catch (error) {
       failed += 1;
+      failures.push(error instanceof Error ? error.message : "Push request failed");
     }
   }
 
-  return { sent, invalidated, failed };
+  return { sent, invalidated, failed, failures };
 }
 
 async function createVapidHeaders(env: RuntimeEnv, endpoint: string): Promise<Headers> {
-  const publicKey = env.VAPID_PUBLIC_KEY;
-  const privateKey = env.VAPID_PRIVATE_KEY;
+  const publicKey = env.VAPID_PUBLIC_KEY?.trim();
+  const privateKey = env.VAPID_PRIVATE_KEY?.trim();
   if (!publicKey || !privateKey) throw new Error("VAPID is not configured");
 
   const header = encodeText(JSON.stringify({ typ: "JWT", alg: "ES256" }));
@@ -88,6 +92,25 @@ async function createVapidHeaders(env: RuntimeEnv, endpoint: string): Promise<He
   headers.set("Authorization", `vapid t=${jwt}, k=${publicKey}`);
   headers.set("Crypto-Key", `p256ecdsa=${publicKey}`);
   return headers;
+}
+
+async function describePushFailure(response: Response): Promise<string> {
+  const body = (await response.text()).trim();
+  let reason = body || response.statusText || "Unknown push error";
+
+  if (body) {
+    try {
+      const parsed = JSON.parse(body) as { reason?: unknown };
+      if (typeof parsed.reason === "string" && parsed.reason.trim()) {
+        reason = parsed.reason.trim();
+      }
+    } catch {
+      reason = body.slice(0, 160);
+    }
+  }
+
+  const apnsId = response.headers.get("apns-id") ?? response.headers.get("apns-request-id");
+  return `${reason} · HTTP ${response.status}${apnsId ? ` · APNs ${apnsId}` : ""}`;
 }
 
 async function importPrivateKey(value: string): Promise<CryptoKey> {
