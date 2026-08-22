@@ -20,10 +20,9 @@ export default {
     }
 
     context.waitUntil(
-      Promise.all([
-        runCleanup(env, correlationId),
-        prepareDueSummaries(env, correlationId),
-      ]).then(() => undefined),
+      Promise.all([runCleanup(env, correlationId), prepareDueSummaries(env, correlationId)]).then(
+        () => undefined,
+      ),
     );
   },
 } satisfies ExportedHandler<Env>;
