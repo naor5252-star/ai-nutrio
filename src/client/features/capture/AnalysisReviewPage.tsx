@@ -57,6 +57,15 @@ type ProductBasis = {
 
 type ServingOption = { labelHe: string; unit: string; baseAmount: number; baseUnit: "g" | "ml" };
 
+type ProportionalNutritionBasis = {
+  baseAmount: number;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+};
+
 type EditableItem = {
   id: string;
   nameHe: string;
@@ -71,6 +80,7 @@ type EditableItem = {
   foodId: string | null;
   sourceType: MealSourceType;
   productBasis: ProductBasis | null;
+  proportionalBasis?: ProportionalNutritionBasis | null;
   servingOptions: ServingOption[];
   servingIndex: number;
 };
@@ -452,7 +462,11 @@ export function AnalysisReviewPage(): React.JSX.Element {
               <small className="portion-equivalent">
                 ≈ {formatNutrient(baseAmountForItem(item))}{" "}
                 {selectedServing(item).baseUnit === "ml" ? "מ״ל" : "גרם"}
-                {item.productBasis ? " · הערכים מתעדכנים אוטומטית מהמאגר" : ""}
+                {item.productBasis
+                  ? " · הערכים מתעדכנים אוטומטית מהמאגר"
+                  : item.proportionalBasis
+                    ? " · ערכי ה-AI מתעדכנים יחסית לכמות"
+                    : ""}
               </small>
             )}
             <div
@@ -550,7 +564,14 @@ export function AnalysisReviewPage(): React.JSX.Element {
 
   function updateItem(index: number, changes: Partial<EditableItem>): void {
     setItems((current) =>
-      current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...changes } : item)),
+      current.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const next = { ...item, ...changes };
+        return {
+          ...next,
+          proportionalBasis: refreshedProportionalBasis(item, next, changes),
+        };
+      }),
     );
   }
 
@@ -559,8 +580,20 @@ export function AnalysisReviewPage(): React.JSX.Element {
       current.map((item, itemIndex) => {
         if (itemIndex !== index) return item;
         const next = { ...item, amount: value };
-        if (!item.productBasis) return next;
-        return { ...next, ...scaledNutrients(item.productBasis, String(baseAmountForItem(next))) };
+
+        if (item.productBasis) {
+          return {
+            ...next,
+            ...scaledNutrients(item.productBasis, String(baseAmountForItem(next))),
+          };
+        }
+
+        if (!value.trim() || !item.proportionalBasis) return next;
+
+        return {
+          ...next,
+          ...scaledProportionalNutrients(item.proportionalBasis, baseAmountForItem(next)),
+        };
       }),
     );
   }
@@ -824,6 +857,17 @@ function createEditableItem(
         ? "database"
         : "ai_estimate",
     productBasis: basis,
+    proportionalBasis:
+      !basis && !manualEntry && amount && serving && Number(amount) > 0
+        ? {
+            baseAmount: Number(amount) * serving.baseAmount,
+            calories: nutrition?.energyKcal ?? midpoint,
+            protein: nutrition?.proteinGrams ?? null,
+            carbs: nutrition?.carbohydrateGrams ?? null,
+            fat: nutrition?.fatGrams ?? null,
+            fiber: nutrition?.fiberGrams ?? null,
+          }
+        : null,
     servingOptions,
     servingIndex,
   };
@@ -883,6 +927,61 @@ function baseAmountForItem(item: EditableItem): number {
   return Number.isFinite(quantity) && quantity >= 0
     ? quantity * selectedServing(item).baseAmount
     : 0;
+}
+
+function scaledProportionalNutrients(
+  basis: ProportionalNutritionBasis,
+  totalBaseAmount: number,
+): Partial<EditableItem> {
+  if (!Number.isFinite(totalBaseAmount) || totalBaseAmount < 0 || basis.baseAmount <= 0) {
+    return {};
+  }
+
+  const factor = totalBaseAmount / basis.baseAmount;
+  return {
+    calories: scaleValue(basis.calories, factor),
+    protein: scaleValue(basis.protein, factor),
+    carbs: scaleValue(basis.carbs, factor),
+    fat: scaleValue(basis.fat, factor),
+    fiber: scaleValue(basis.fiber, factor),
+  };
+}
+
+function refreshedProportionalBasis(
+  previous: EditableItem,
+  next: EditableItem,
+  changes: Partial<EditableItem>,
+): ProportionalNutritionBasis | null | undefined {
+  if (next.productBasis || !previous.proportionalBasis) return next.proportionalBasis;
+
+  const nutrientChanged =
+    "calories" in changes ||
+    "protein" in changes ||
+    "carbs" in changes ||
+    "fat" in changes ||
+    "fiber" in changes;
+
+  if (!nutrientChanged) return previous.proportionalBasis;
+
+  const totalBaseAmount = baseAmountForItem(next);
+  if (!Number.isFinite(totalBaseAmount) || totalBaseAmount <= 0) {
+    return previous.proportionalBasis;
+  }
+
+  return {
+    baseAmount: totalBaseAmount,
+    calories: numericTextOrNull(next.calories),
+    protein: numericTextOrNull(next.protein),
+    carbs: numericTextOrNull(next.carbs),
+    fat: numericTextOrNull(next.fat),
+    fiber: numericTextOrNull(next.fiber),
+  };
+}
+
+function numericTextOrNull(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function scaledNutrients(product: ProductBasis, amountText: string): Partial<EditableItem> {
