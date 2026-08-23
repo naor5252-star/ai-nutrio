@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - ".github/workflows/finalize-ci-recovery-once.yml"
+      - "src/server/ai/text-generator.ts"
+      - "src/server/scheduled/smart-notifications.ts"
+      - "src/client/features/settings/PushNotificationSettings.tsx"
 
 permissions:
   contents: write

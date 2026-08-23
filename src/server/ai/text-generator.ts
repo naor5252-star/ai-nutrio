@@ -80,6 +80,10 @@ function isAiBinding(value: unknown): value is GenericAiBinding {
   );
 }
 
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
 function extractText(raw: unknown): string | null {
   if (typeof raw === "string") return raw.trim() || null;
   if (!raw || typeof raw !== "object") return null;
@@ -99,14 +103,13 @@ function extractText(raw: unknown): string | null {
     }
   }
 
-  const choices =
-    Array.isArray(record.choices)
-      ? record.choices
-      : record.result &&
-          typeof record.result === "object" &&
-          Array.isArray((record.result as Record<string, unknown>).choices)
-        ? ((record.result as Record<string, unknown>).choices as unknown[])
-        : [];
+  let choices: unknown[] = [];
+  if (isUnknownArray(record.choices)) {
+    choices = record.choices;
+  } else if (record.result && typeof record.result === "object") {
+    const result = record.result as Record<string, unknown>;
+    if (isUnknownArray(result.choices)) choices = result.choices;
+  }
 
   const first = choices[0];
   if (!first || typeof first !== "object") return null;
@@ -124,7 +127,7 @@ function extractText(raw: unknown): string | null {
 
 function readContent(value: unknown): string | null {
   if (typeof value === "string") return value.trim() || null;
-  if (!Array.isArray(value)) return null;
+  if (!isUnknownArray(value)) return null;
 
   const combined = value
     .map((part) => {
