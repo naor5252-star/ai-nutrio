@@ -1,27 +1,29 @@
-name: CI audit and finalize once
+name: Finalize CI recovery once
 
 on:
   push:
     branches:
       - main
     paths:
-      - ".github/workflows/ci-audit-and-finalize-once.yml"
+      - ".github/workflows/finalize-ci-recovery-once.yml"
 
 permissions:
   contents: write
 
 jobs:
-  audit:
+  recover:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main
+        uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22.23.1
           cache: npm
@@ -29,13 +31,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Auto-fix formatting and safe lint fixes
+      - name: Format and apply safe lint fixes
         run: |
           npx prettier --write \
             src/server/ai/text-generator.ts \
             src/server/scheduled/smart-notifications.ts \
             src/client/features/settings/PushNotificationSettings.tsx \
-            .github/workflows/ci-audit-and-finalize-once.yml
+            .github/workflows/finalize-ci-recovery-once.yml
 
           npx eslint \
             src/server/ai/text-generator.ts \
@@ -43,7 +45,13 @@ jobs:
             src/client/features/settings/PushNotificationSettings.tsx \
             --fix
 
-      - name: Run every CI check and report all failures
+          # ESLint can occasionally change formatting, so finish with Prettier.
+          npx prettier --write \
+            src/server/ai/text-generator.ts \
+            src/server/scheduled/smart-notifications.ts \
+            src/client/features/settings/PushNotificationSettings.tsx
+
+      - name: Run all CI checks and show every failure
         shell: bash
         run: |
           set +e
@@ -70,15 +78,19 @@ jobs:
           run_check "Unit tests" npm run test
           run_check "Migration validation" npm run validate:migrations
           run_check "Production build" npm run build
-          run_check "Install Playwright WebKit" npx playwright install --with-deps webkit
-          run_check "E2E tests" npm run test:e2e
 
-          echo "Total failing checks: ${failures}"
+          echo "Total core CI failures: ${failures}"
           if [ "$failures" -ne 0 ]; then
             exit 1
           fi
 
-      - name: Commit final clean state
+      - name: Install WebKit
+        run: npx playwright install --with-deps webkit
+
+      - name: Run E2E
+        run: npm run test:e2e
+
+      - name: Commit clean state and remove this workflow
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -88,11 +100,7 @@ jobs:
             src/server/scheduled/smart-notifications.ts \
             src/client/features/settings/PushNotificationSettings.tsx
 
-          git rm .github/workflows/ci-audit-and-finalize-once.yml
+          git rm .github/workflows/finalize-ci-recovery-once.yml
 
-          if git diff --cached --quiet; then
-            echo "Nothing to commit."
-          else
-            git commit -m "Finalize workflow and AI fixes"
-            git push origin HEAD:main
-          fi
+          git commit -m "Finalize CI recovery"
+          git push origin HEAD:main
