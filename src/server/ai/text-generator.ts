@@ -43,7 +43,7 @@ export async function generateCoachReply(options: {
 
       if (model !== options.env.AI_STRONG_MODEL) {
         logEvent({
-          severity: "warning",
+          severity: "warn",
           event: "coach_ai_fallback_model_succeeded",
           correlationId: options.correlationId,
           outcome: "success",
