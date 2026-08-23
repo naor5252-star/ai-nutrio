@@ -87,7 +87,7 @@ export async function runSmartPushNotifications(
 
   if (env.AI_ENABLED !== "true" || !isAiBinding(env.AI)) {
     logEvent({
-      severity: "warning",
+      severity: "warn",
       event: "smart_push_ai_unavailable",
       correlationId,
       outcome: "skipped",
@@ -314,7 +314,7 @@ async function buildAiNotification(
     return parseAiNotification(raw);
   } catch (error) {
     logEvent({
-      severity: "warning",
+      severity: "warn",
       event: "smart_push_ai_generation_failed",
       correlationId,
       outcome: "skipped",
