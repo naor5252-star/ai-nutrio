@@ -166,6 +166,10 @@ function isAiBinding(value: unknown): value is GenericAiBinding {
   );
 }
 
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
 function extractCompletion(raw: unknown): ExtractedCompletion {
   if (typeof raw === "string") {
     return {
@@ -218,7 +222,7 @@ function extractCompletion(raw: unknown): ExtractedCompletion {
 }
 
 function fromChoices(value: unknown): ExtractedCompletion {
-  if (!Array.isArray(value) || value.length === 0) {
+  if (!isUnknownArray(value) || value.length === 0) {
     return {
       content: null,
       finishReason: null,
@@ -226,7 +230,7 @@ function fromChoices(value: unknown): ExtractedCompletion {
     };
   }
 
-  const first = value[0];
+  const first: unknown = value[0];
   if (!first || typeof first !== "object") {
     return {
       content: null,
@@ -271,10 +275,10 @@ function cleanText(value: unknown): string | null {
     return cleaned || null;
   }
 
-  if (!Array.isArray(value)) return null;
+  if (!isUnknownArray(value)) return null;
 
   const combined = value
-    .map((part) => {
+    .map((part: unknown) => {
       if (typeof part === "string") return part;
       if (!part || typeof part !== "object") return "";
 
