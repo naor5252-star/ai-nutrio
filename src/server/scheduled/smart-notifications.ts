@@ -16,13 +16,11 @@ type NotificationUser = {
   afternoon_time: string;
   evening_enabled: number;
   evening_time: string;
-  ai_personalized: number;
 };
 
 type Slot = {
   type: "smart_morning" | "smart_afternoon" | "smart_evening";
   label: "morning" | "afternoon" | "evening";
-  title: string;
   localDate: string;
 };
 
@@ -31,7 +29,12 @@ type TargetRow = {
   effective_protein_grams: number | null;
 };
 
-type MealRow = {
+type PersonalContextRow = {
+  display_name: string | null;
+  primary_goal: string | null;
+};
+
+type MealAggregateRow = {
   calories: number | null;
   protein: number | null;
   meal_count: number;
@@ -41,14 +44,38 @@ type HealthRow = {
   active_energy_kcal: number | null;
   resting_energy_kcal: number | null;
   steps: number | null;
+  walking_running_distance_km: number | null;
 };
 
-type PersonalContextRow = {
-  display_name: string | null;
-  primary_goal: string | null;
+type WorkoutAggregateRow = {
+  workout_count: number;
+  duration_minutes: number | null;
 };
 
 type RecentMessageRow = {
+  title: string;
+  body: string;
+};
+
+type DailySnapshot = {
+  date: string;
+  meals: {
+    calories: number;
+    proteinGrams: number;
+    mealCount: number;
+  };
+  activity: {
+    steps: number | null;
+    activeEnergyKcal: number | null;
+    restingEnergyKcal: number | null;
+    walkingRunningDistanceKm: number | null;
+    workoutCount: number;
+    workoutDurationMinutes: number;
+  };
+};
+
+type AiNotification = {
+  title: string;
   body: string;
 };
 
@@ -58,13 +85,23 @@ export async function runSmartPushNotifications(
 ): Promise<void> {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
 
+  if (env.AI_ENABLED !== "true" || !isAiBinding(env.AI)) {
+    logEvent({
+      severity: "warning",
+      event: "smart_push_ai_unavailable",
+      correlationId,
+      outcome: "skipped",
+      details: { reason: "AI_REQUIRED_FOR_ALL_SMART_NOTIFICATIONS" },
+    });
+    return;
+  }
+
   const users = await env.DB.prepare(
     `SELECT
        u.id, u.timezone,
        np.morning_enabled, np.morning_time,
        np.afternoon_enabled, np.afternoon_time,
-       np.evening_enabled, np.evening_time,
-       np.ai_personalized
+       np.evening_enabled, np.evening_time
      FROM users u
      JOIN notification_preferences np ON np.user_id = u.id
      WHERE u.deleted_at IS NULL
@@ -78,6 +115,7 @@ export async function runSmartPushNotifications(
   ).all<NotificationUser>();
 
   let sentUsers = 0;
+  let aiSkippedUsers = 0;
 
   for (const user of users.results) {
     const clock = localClock(new Date(), user.timezone);
@@ -94,9 +132,15 @@ export async function runSmartPushNotifications(
     )
       .bind(user.id, slot.type, slot.localDate)
       .first<{ id: string }>();
+
     if (existing) continue;
 
-    const body = await buildMessage(env, user, slot);
+    const notification = await buildAiNotification(env, user, slot, correlationId);
+    if (!notification) {
+      aiSkippedUsers += 1;
+      continue;
+    }
+
     const messageId = crypto.randomUUID();
     const deliveryId = crypto.randomUUID();
     const createdAt = nowIso();
@@ -107,7 +151,15 @@ export async function runSmartPushNotifications(
         `INSERT INTO push_notification_messages
          (id, owner_user_id, notification_type, title, body, target_url, created_at, expires_at)
          VALUES (?, ?, ?, ?, ?, '/', ?, ?)`,
-      ).bind(messageId, user.id, slot.type, slot.title, body, createdAt, expiresAt),
+      ).bind(
+        messageId,
+        user.id,
+        slot.type,
+        notification.title,
+        notification.body,
+        createdAt,
+        expiresAt,
+      ),
       env.DB.prepare(
         `INSERT INTO notification_deliveries
          (id, owner_user_id, notification_type, channel, status, related_entity_id, error_code, created_at, delivered_at)
@@ -116,12 +168,13 @@ export async function runSmartPushNotifications(
     ]);
 
     const result = await sendPayloadlessPushToUser(env, user.id);
+
     await env.DB.prepare(
       "UPDATE notification_deliveries SET status = ?, error_code = ? WHERE id = ?",
     )
       .bind(
         result.sent > 0 ? "sent" : "failed",
-        result.sent > 0 ? null : "PUSH_NOT_SENT",
+        result.sent > 0 ? null : (result.failures[0] ?? "PUSH_NOT_SENT").slice(0, 200),
         deliveryId,
       )
       .run();
@@ -134,21 +187,152 @@ export async function runSmartPushNotifications(
     event: "smart_push_schedule_checked",
     correlationId,
     outcome: "success",
-    details: { candidates: users.results.length, sentUsers },
+    details: {
+      candidates: users.results.length,
+      sentUsers,
+      aiSkippedUsers,
+    },
   });
 }
 
-async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot): Promise<string> {
-  const [target, meals, health, personalContext, recentMessages] = await Promise.all([
-    env.DB.prepare(
-      `SELECT effective_calories, effective_protein_grams
-       FROM nutrition_target_versions
-       WHERE user_id = ?
-       ORDER BY effective_from DESC
-       LIMIT 1`,
-    )
-      .bind(user.id)
-      .first<TargetRow>(),
+async function buildAiNotification(
+  env: RuntimeEnv,
+  user: NotificationUser,
+  slot: Slot,
+  correlationId: string,
+): Promise<AiNotification | null> {
+  const yesterday = addDays(slot.localDate, -1);
+  const weekday = dayOfWeek(slot.localDate);
+  const weekendApproach = weekday === 4 || weekday === 5;
+  const weekStart = startOfIsraeliWeek(slot.localDate);
+  const weekDates = dateRange(weekStart, slot.localDate);
+
+  try {
+    const [target, personalContext, today, previousDay, recentMessages, weekSnapshots] =
+      await Promise.all([
+        env.DB.prepare(
+          `SELECT effective_calories, effective_protein_grams
+           FROM nutrition_target_versions
+           WHERE user_id = ?
+           ORDER BY effective_from DESC
+           LIMIT 1`,
+        )
+          .bind(user.id)
+          .first<TargetRow>(),
+        env.DB.prepare(
+          `SELECT u.display_name, up.primary_goal
+           FROM users u
+           LEFT JOIN user_profiles up ON up.user_id = u.id
+           WHERE u.id = ?
+           LIMIT 1`,
+        )
+          .bind(user.id)
+          .first<PersonalContextRow>(),
+        loadDailySnapshot(env, user.id, slot.localDate),
+        loadDailySnapshot(env, user.id, yesterday),
+        env.DB.prepare(
+          `SELECT title, body
+           FROM push_notification_messages
+           WHERE owner_user_id = ?
+             AND notification_type IN ('smart_morning', 'smart_afternoon', 'smart_evening')
+           ORDER BY created_at DESC
+           LIMIT 6`,
+        )
+          .bind(user.id)
+          .all<RecentMessageRow>(),
+        weekendApproach
+          ? Promise.all(weekDates.map((date) => loadDailySnapshot(env, user.id, date)))
+          : Promise.resolve([] as DailySnapshot[]),
+      ]);
+
+    const firstName = extractFirstName(personalContext?.display_name ?? null);
+    const model =
+      weekendApproach || slot.label === "evening" ? env.AI_STRONG_MODEL : env.AI_FAST_MODEL;
+
+    const raw = await env.AI.run(model, {
+      messages: [
+        {
+          role: "system",
+          content: `אתה המאמן האישי של אפליקציית "רגע טוב".
+כל הניתוח והניסוח חייבים להתבצע על ידך מתוך הנתונים שסופקו. אין מנגנון חוקים שמחליט עבורך מה חשוב.
+
+המטרה: לכתוב התראת Push אחת קצרה, אישית ומכוונת לפעולה שמתאימה למצב של המשתמש עכשיו.
+
+כללי ניתוח:
+1. בכל הודעה השווה את היום הנוכחי ליום הקודם, בהתאם לשעה ביום ולכמות הנתונים שכבר קיימת היום.
+2. בבוקר, כשהיום עדיין כמעט ריק, השתמש בעיקר ביום הקודם כדי להציע התחלה טובה יותר להיום.
+3. באמצע היום, בדוק אם דפוס היום שונה מהיום הקודם והאם יש פעולה קטנה שכדאי לעשות בארוחה או בפעילות הבאה.
+4. בערב, סכם את המשמעות של היום ביחס לאתמול והצע דבר אחד לקחת למחר.
+5. כאשר weekendApproach=true, נתח גם את כל נתוני השבוע מתחילת השבוע ועד היום. חפש דפוס אמיתי שחוזר על עצמו והצע אסטרטגיה מעשית לסוף השבוע.
+6. נתוני יעד, קלוריות, חלבון, צעדים, פעילות ושריפה הם חומר לניתוח מאחורי הקלעים. אל תקריא דוח מספרי. הצג מספר רק אם מספר יחיד באמת עוזר להחלטה.
+7. אל תמציא מידע. אם חסרים נתונים, היה זהיר ואל תסיק מסקנה חזקה.
+8. השתמש בשם הפרטי רק אם זה נשמע טבעי, ולא בכל הודעה.
+9. אל תחזור על ניסוח או רעיון מההתראות האחרונות.
+10. אל תהיה שיפוטי, אל תדבר על "פיצוי", אל תעודד דילוג על ארוחות ואל תיתן ייעוץ רפואי.
+11. השפה צריכה להרגיש כמו מאמן אנושי שמכיר את הנתונים, לא כמו מערכת אנליטיקה.
+
+החזר JSON בלבד, בלי Markdown:
+{"title":"כותרת קצרה בעברית","body":"הודעה בעברית עד 220 תווים"}
+
+גם הכותרת וגם גוף ההודעה חייבים להיכתב על ידך.`,
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            timeOfDay: slot.label,
+            localDate: slot.localDate,
+            firstName,
+            primaryGoal: personalContext?.primary_goal ?? null,
+            targets: {
+              calories: round(target?.effective_calories ?? null),
+              proteinGrams: round(target?.effective_protein_grams ?? null),
+            },
+            today,
+            previousDay,
+            weekendApproach,
+            weekContext: weekendApproach
+              ? {
+                  weekStartsOn: "Sunday",
+                  from: weekStart,
+                  through: slot.localDate,
+                  days: weekSnapshots,
+                }
+              : null,
+            recentNotifications: recentMessages.results.map((message) => ({
+              title: message.title,
+              body: message.body,
+            })),
+            task:
+              "נתח את המידע בעצמך ובחר רק את התובנה והפעולה שהכי מועילות למשתמש ברגע הזה.",
+          }),
+        },
+      ],
+      max_tokens: 260,
+      temperature: 0.55,
+    });
+
+    return parseAiNotification(raw);
+  } catch (error) {
+    logEvent({
+      severity: "warning",
+      event: "smart_push_ai_generation_failed",
+      correlationId,
+      outcome: "skipped",
+      details: {
+        slot: slot.label,
+        reason: error instanceof Error ? error.message.slice(0, 200) : "unknown",
+      },
+    });
+    return null;
+  }
+}
+
+async function loadDailySnapshot(
+  env: RuntimeEnv,
+  userId: string,
+  date: string,
+): Promise<DailySnapshot> {
+  const [meals, health, workouts] = await Promise.all([
     env.DB.prepare(
       `SELECT
          COALESCE(SUM(total_calories), 0) AS calories,
@@ -157,229 +341,79 @@ async function buildMessage(env: RuntimeEnv, user: NotificationUser, slot: Slot)
        FROM meals
        WHERE owner_user_id = ? AND local_date = ?`,
     )
-      .bind(user.id, slot.localDate)
-      .first<MealRow>(),
+      .bind(userId, date)
+      .first<MealAggregateRow>(),
     env.DB.prepare(
-      `SELECT active_energy_kcal, resting_energy_kcal, steps
+      `SELECT
+         active_energy_kcal,
+         resting_energy_kcal,
+         steps,
+         walking_running_distance_km
        FROM health_daily_summaries
        WHERE owner_user_id = ?
          AND source = 'apple_health_shortcut'
          AND local_date = ?
        LIMIT 1`,
     )
-      .bind(user.id, slot.localDate)
+      .bind(userId, date)
       .first<HealthRow>(),
     env.DB.prepare(
-      `SELECT u.display_name, up.primary_goal
-       FROM users u
-       LEFT JOIN user_profiles up ON up.user_id = u.id
-       WHERE u.id = ?
-       LIMIT 1`,
-    )
-      .bind(user.id)
-      .first<PersonalContextRow>(),
-    env.DB.prepare(
-      `SELECT body
-       FROM push_notification_messages
+      `SELECT
+         COUNT(*) AS workout_count,
+         COALESCE(SUM(duration_minutes), 0) AS duration_minutes
+       FROM health_workouts
        WHERE owner_user_id = ?
-         AND notification_type IN ('smart_morning', 'smart_afternoon', 'smart_evening')
-       ORDER BY created_at DESC
-       LIMIT 4`,
+         AND substr(start_at, 1, 10) = ?`,
     )
-      .bind(user.id)
-      .all<RecentMessageRow>(),
+      .bind(userId, date)
+      .first<WorkoutAggregateRow>(),
   ]);
 
-  const intake = meals?.calories ?? 0;
-  const protein = meals?.protein ?? 0;
-  const targetCalories = target?.effective_calories ?? null;
-  const targetProtein = target?.effective_protein_grams ?? null;
-  const remainingCalories = targetCalories === null ? null : Math.max(0, targetCalories - intake);
-  const remainingProtein = targetProtein === null ? null : Math.max(0, targetProtein - protein);
-  const burned =
-    health && (health.active_energy_kcal !== null || health.resting_energy_kcal !== null)
-      ? (health.active_energy_kcal ?? 0) + (health.resting_energy_kcal ?? 0)
-      : null;
-  const balance = burned === null ? null : burned - intake;
-
-  const proteinPace = targetProtein && targetProtein > 0 ? protein / targetProtein : null;
-  const intakePace = targetCalories && targetCalories > 0 ? intake / targetCalories : null;
-  const angle = chooseNotificationAngle({
-    slot: slot.label,
-    localDate: slot.localDate,
-    proteinPace,
-    intakePace,
-    balance,
-    mealCount: meals?.meal_count ?? 0,
-  });
-  const name = firstName(personalContext?.display_name ?? null);
-
-  const fallback = fallbackMessage({
-    slot: slot.label,
-    localDate: slot.localDate,
-    angle,
-    name,
-  });
-
-  if (user.ai_personalized !== 1 || env.AI_ENABLED !== "true" || !isAiBinding(env.AI)) {
-    return fallback;
-  }
-
-  try {
-    const raw = await env.AI.run(env.AI_FAST_MODEL, {
-      messages: [
-        {
-          role: "system",
-          content:
-            "אתה המאמן האישי של אפליקציית 'רגע טוב'. כתוב הודעת Push אחת בעברית טבעית, חמה וקצרה, עד 190 תווים. המספרים הם חומר רקע בשבילך — אל תקריא דוח ואל תכתוב כמה נצרך וכמה נשאר, אלא אם מספר יחיד באמת נחוץ. התמקד ברעיון אחד מועיל עכשיו: חיזוק הרגל טוב, הצעה קטנה לארוחה הבאה, הקשבה לרעב ושובע, או מחשבה חיובית לסיום היום. השתמש בשם הפרטי רק לפעמים, לא בכל הודעה. אל תחזור על ניסוח מההודעות האחרונות. אל תהיה שיפוטי, אל תדבר על 'פיצוי', אל תייצר לחץ, אל תמציא נתונים ואל תיתן ייעוץ רפואי.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            timeOfDay: slot.label,
-            date: slot.localDate,
-            intakeCalories: round(intake),
-            proteinGrams: round(protein),
-            targetCalories: round(targetCalories),
-            targetProteinGrams: round(targetProtein),
-            remainingCalories: round(remainingCalories),
-            remainingProteinGrams: round(remainingProtein),
-            burnedCalories: round(burned),
-            calorieBalance: round(balance),
-            steps: round(health?.steps ?? null),
-            mealCount: meals?.meal_count ?? 0,
-            firstName: name,
-            primaryGoal: personalContext?.primary_goal ?? null,
-            coachingAngle: angle,
-            recentNotificationBodies: recentMessages.results.map((message) => message.body),
-            instruction:
-              "כתוב מסר אחד אישי ומעשי לפי coachingAngle. אל תסכם את כל הנתונים ואל תחזור על ההודעות האחרונות.",
-            fallback,
-          }),
-        },
-      ],
-      max_tokens: 120,
-      temperature: 0.62,
-    });
-
-    return cleanText(readText(raw)) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-type CoachingAngle =
-  | "gentle_start"
-  | "protein_nudge"
-  | "steady_momentum"
-  | "light_evening"
-  | "listen_to_hunger"
-  | "close_the_day"
-  | "fresh_start";
-
-function chooseNotificationAngle(input: {
-  slot: "morning" | "afternoon" | "evening";
-  localDate: string;
-  proteinPace: number | null;
-  intakePace: number | null;
-  balance: number | null;
-  mealCount: number;
-}): CoachingAngle {
-  if (input.slot === "morning") {
-    return deterministicPick(
-      ["gentle_start", "fresh_start", "steady_momentum"] as const,
-      `${input.localDate}:morning`,
-    );
-  }
-
-  if (input.slot === "afternoon") {
-    if (input.proteinPace !== null && input.proteinPace < 0.45) return "protein_nudge";
-    if (input.intakePace !== null && input.intakePace > 0.82) return "light_evening";
-    return deterministicPick(
-      ["steady_momentum", "listen_to_hunger", "protein_nudge"] as const,
-      `${input.localDate}:afternoon:${input.mealCount}`,
-    );
-  }
-
-  if (input.proteinPace !== null && input.proteinPace < 0.75) return "protein_nudge";
-  if (input.balance !== null && input.balance >= 0) return "listen_to_hunger";
-  return deterministicPick(
-    ["close_the_day", "steady_momentum", "fresh_start"] as const,
-    `${input.localDate}:evening`,
-  );
-}
-
-function fallbackMessage(input: {
-  slot: "morning" | "afternoon" | "evening";
-  localDate: string;
-  angle: CoachingAngle;
-  name: string | null;
-}): string {
-  const prefix =
-    input.name && deterministicNumber(`${input.localDate}:${input.slot}:name`) % 3 === 0
-      ? `${input.name}, `
-      : "";
-
-  const messages: Record<CoachingAngle, readonly string[]> = {
-    gentle_start: [
-      "פתח את היום פשוט 🌱 משהו שאתה אוהב, עם חלבון טוב לידו, יכול לעשות את ההמשך הרבה יותר רגוע.",
-      "לא צריך בוקר מושלם ☀️ בחירה אחת משביעה ונוחה עכשיו מספיקה כדי להתחיל בכיוון טוב.",
-      "תן לבוקר לעבוד בשבילך 🌱 ארוחה פשוטה ומשביעה עכשיו יכולה לחסוך רעב חזק בהמשך.",
-    ],
-    protein_nudge: [
-      "בארוחה הבאה שווה לתת קצת יותר מקום לחלבון 🌿 בחירה קטנה עכשיו יכולה לסדר יפה את המשך היום.",
-      "רעיון קטן להמשך: בחר משהו עם בסיס חלבוני טוב, ותוסיף לידו את מה שבא לך באמת לאכול.",
-      "אם אתה מתכנן את הארוחה הבאה, תתחיל מהחלבון ומשם תבנה את השאר. פשוט וקל.",
-    ],
-    steady_momentum: [
-      "נראה שהיום מתקדם בקצב טוב 🌿 אין צורך לשנות הרבה — פשוט להמשיך עם בחירות שנוחות לך.",
-      "הכיוון טוב. בארוחה הבאה חפש בעיקר משהו שישביע אותך ושתהנה ממנו, בלי לסבך.",
-      "עוד יום שנבנה מבחירות קטנות 🌱 תמשיך רגיל; עקביות חשובה יותר מארוחה 'מושלמת'.",
-    ],
-    light_evening: [
-      "אם תהיה רעב בערב, לך על משהו קל ומשביע 🌙 אין צורך להפוך את שאר היום לפרויקט.",
-      "להמשך הערב: תן לרעב להוביל. אם צריך משהו, בחר מנה פשוטה ונוחה ולא מתוך תחושת חובה.",
-      "הערב יכול להישאר קליל 🌙 תאכל אם אתה רעב, ותבחר משהו שיעשה לך טוב בלי להעמיס.",
-    ],
-    listen_to_hunger: [
-      "בדוק רגע איך אתה מרגיש 🌿 אם אתה שבע, אפשר לעצור. אם אתה רעב, מגיעה לך ארוחה אמיתית — לא רק 'להחזיק מעמד'.",
-      "הרעב והשובע שלך חשובים יותר מעוד מספר על המסך. תן להם להוביל את הבחירה הבאה.",
-      "לפני הארוחה הבאה, רגע אחד של בדיקה: רעב באמת, חשק, או פשוט הרגל? אין תשובה 'נכונה'.",
-    ],
-    close_the_day: [
-      "סיום יום 🌙 קח איתך דבר אחד שעבד היום טוב ותנסה לשחזר אותו מחר. זה מספיק.",
-      "לא צריך לסכם את היום בציון. אם הייתה בחירה אחת שעשתה לך טוב — זה הדבר ששווה לזכור למחר.",
-      "היום נגמר, לא צריך לתקן אותו 🌙 מחר ממשיכים מאותה נקודה, עם עוד בחירה קטנה טובה.",
-    ],
-    fresh_start: [
-      "יום חדש, בלי חשבונות מאתמול 🌱 תבחר עכשיו דבר אחד שיעשה את היום קצת יותר קל.",
-      "מתחילים נקי ☀️ לא צריך תוכנית מושלמת — רק החלטה קטנה אחת שתשרת אותך היום.",
-      "היום לא צריך להיראות כמו אתמול. תתחיל מבחירה אחת טובה שמתאימה לך עכשיו.",
-    ],
+  return {
+    date,
+    meals: {
+      calories: round(meals?.calories ?? 0) ?? 0,
+      proteinGrams: round(meals?.protein ?? 0) ?? 0,
+      mealCount: meals?.meal_count ?? 0,
+    },
+    activity: {
+      steps: round(health?.steps ?? null),
+      activeEnergyKcal: round(health?.active_energy_kcal ?? null),
+      restingEnergyKcal: round(health?.resting_energy_kcal ?? null),
+      walkingRunningDistanceKm: roundOne(health?.walking_running_distance_km ?? null),
+      workoutCount: workouts?.workout_count ?? 0,
+      workoutDurationMinutes: round(workouts?.duration_minutes ?? 0) ?? 0,
+    },
   };
-
-  const options = messages[input.angle];
-  return `${prefix}${deterministicPick(options, `${input.localDate}:${input.slot}:${input.angle}`)}`;
 }
 
-function firstName(displayName: string | null): string | null {
-  if (!displayName) return null;
-  const trimmed = displayName.trim();
-  if (!trimmed) return null;
-  return trimmed.split(/\s+/u)[0] ?? null;
+function parseAiNotification(value: unknown): AiNotification {
+  const direct = readDirectMessage(value);
+  if (direct) return direct;
+
+  const text = readText(value);
+  if (!text) throw new Error("AI returned no text");
+
+  const cleaned = text
+    .replace(/^```(?:json)?\s*/iu, "")
+    .replace(/\s*```$/u, "")
+    .trim();
+
+  const parsed = JSON.parse(cleaned) as unknown;
+  const message = readDirectMessage(parsed);
+  if (!message) throw new Error("AI returned invalid notification JSON");
+  return message;
 }
 
-function deterministicPick<T>(values: readonly T[], seed: string): T {
-  return values[deterministicNumber(seed) % values.length]!;
-}
+function readDirectMessage(value: unknown): AiNotification | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
 
-function deterministicNumber(seed: string): number {
-  let hash = 2166136261;
-  for (const char of seed) {
-    hash ^= char.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
+  const title = typeof record.title === "string" ? cleanLine(record.title, 70) : null;
+  const body = typeof record.body === "string" ? cleanLine(record.body, 220) : null;
+
+  if (!title || !body) return null;
+  return { title, body };
 }
 
 function dueSlot(user: NotificationUser, localDate: string, currentMinutes: number): Slot | null {
@@ -389,38 +423,37 @@ function dueSlot(user: NotificationUser, localDate: string, currentMinutes: numb
       time: user.morning_time,
       type: "smart_morning" as const,
       label: "morning" as const,
-      title: "רגע טוב · בוקר טוב 🌱",
     },
     {
       enabled: user.afternoon_enabled === 1,
       time: user.afternoon_time,
       type: "smart_afternoon" as const,
       label: "afternoon" as const,
-      title: "רגע טוב · אמצע היום 🌿",
     },
     {
       enabled: user.evening_enabled === 1,
       time: user.evening_time,
       type: "smart_evening" as const,
       label: "evening" as const,
-      title: "רגע טוב · סיכום ערב 🌙",
     },
   ];
 
   for (const candidate of candidates) {
     if (!candidate.enabled) continue;
+
     const targetMinutes = parseTime(candidate.time);
     if (targetMinutes === null) continue;
+
     const delta = currentMinutes - targetMinutes;
     if (delta >= 0 && delta < 15) {
       return {
         type: candidate.type,
         label: candidate.label,
-        title: candidate.title,
         localDate,
       };
     }
   }
+
   return null;
 }
 
@@ -444,12 +477,45 @@ function localClock(date: Date, timeZone: string): { localDate: string; minutes:
   };
 }
 
+function startOfIsraeliWeek(localDate: string): string {
+  return addDays(localDate, -dayOfWeek(localDate));
+}
+
+function dateRange(from: string, through: string): string[] {
+  const dates: string[] = [];
+  let current = from;
+
+  while (current <= through && dates.length < 7) {
+    dates.push(current);
+    current = addDays(current, 1);
+  }
+
+  return dates;
+}
+
+function addDays(localDate: string, days: number): string {
+  const date = new Date(`${localDate}T12:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function dayOfWeek(localDate: string): number {
+  return new Date(`${localDate}T12:00:00.000Z`).getUTCDay();
+}
+
 function parseTime(value: string): number | null {
   const match = /^(\d{2}):(\d{2})$/u.exec(value);
   if (!match) return null;
+
   const hour = Number(match[1]);
   const minute = Number(match[2]);
   return hour <= 23 && minute <= 59 ? hour * 60 + minute : null;
+}
+
+function extractFirstName(displayName: string | null): string | null {
+  if (!displayName) return null;
+  const trimmed = displayName.trim();
+  return trimmed ? (trimmed.split(/\s+/u)[0] ?? null) : null;
 }
 
 function isAiBinding(value: unknown): value is GenericAiBinding {
@@ -464,22 +530,24 @@ function isAiBinding(value: unknown): value is GenericAiBinding {
 function readText(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return null;
+
   const record = value as Record<string, unknown>;
   for (const key of ["response", "result", "content", "text"]) {
     if (typeof record[key] === "string") return record[key];
   }
+
   return null;
 }
 
-function cleanText(value: string | null): string | null {
-  if (!value) return null;
-  const cleaned = value
-    .replace(/^["'`]+|["'`]+$/gu, "")
-    .replace(/\s+/gu, " ")
-    .trim();
-  return cleaned ? cleaned.slice(0, 220) : null;
+function cleanLine(value: string, maxLength: number): string | null {
+  const cleaned = value.replace(/\s+/gu, " ").trim();
+  return cleaned ? cleaned.slice(0, maxLength) : null;
 }
 
 function round(value: number | null): number | null {
   return value === null ? null : Math.round(value);
+}
+
+function roundOne(value: number | null): number | null {
+  return value === null ? null : Math.round(value * 10) / 10;
 }

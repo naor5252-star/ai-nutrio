@@ -59,7 +59,7 @@ export function PushNotificationSettings(): React.JSX.Element {
       afternoonTime: preferences.data.afternoonTime,
       eveningEnabled: preferences.data.eveningEnabled,
       eveningTime: preferences.data.eveningTime,
-      aiPersonalized: preferences.data.aiPersonalized,
+      aiPersonalized: true,
     });
     preferencesLoaded.current = true;
   }, [preferences.data]);
@@ -214,7 +214,7 @@ export function PushNotificationSettings(): React.JSX.Element {
         </span>
       </div>
 
-      <p>רגע טוב יכול לנסח באמצעות AI עדכונים קצרים לפי הארוחות, היעדים ונתוני הפעילות שלך.</p>
+      <p>AI מנתח את היום שלך מול אתמול ומכוון לצעד הבא. לקראת סוף השבוע הוא מסתכל גם על כל השבוע ומחפש את הדפוס שהכי כדאי לקחת איתך לסופ״ש.</p>
 
       {!config.data?.configured && (
         <p className="form-error">
@@ -281,19 +281,14 @@ export function PushNotificationSettings(): React.JSX.Element {
           onTime={(value) => setDraft((current) => ({ ...current, eveningTime: value }))}
         />
 
-        <label>
-          <span>
-            <input
-              type="checkbox"
-              checked={draft.aiPersonalized}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, aiPersonalized: event.target.checked }))
-              }
-            />{" "}
-            ניסוח אישי באמצעות AI
-          </span>
-          <small>אם ה־AI לא זמין, רגע טוב ישלח נוסח בטוח המבוסס רק על הנתונים הקיימים.</small>
-        </label>
+        <div className="status-message">
+          <strong>ניתוח AI פעיל ✨</strong>
+          <br />
+          <small>
+            כל התראה נוצרת ומנותחת באמצעות AI. אם ה־AI אינו זמין, לא תישלח הודעה כללית או
+            אוטומטית במקומו.
+          </small>
+        </div>
 
         <button
           type="button"
@@ -347,6 +342,7 @@ async function savePreferences(draft: Draft): Promise<void> {
     method: "PUT",
     body: JSON.stringify({
       ...draft,
+      aiPersonalized: true,
       timezone: browserTimeZone(),
     }),
   });
