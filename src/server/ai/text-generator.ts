@@ -17,11 +17,13 @@ export async function generateCoachReply(options: {
     return fallback;
   }
 
-  const models = [...new Set(
-    [options.env.AI_STRONG_MODEL, options.env.AI_FAST_MODEL]
-      .map((model) => model.trim())
-      .filter(Boolean),
-  )];
+  const models = [
+    ...new Set(
+      [options.env.AI_STRONG_MODEL, options.env.AI_FAST_MODEL]
+        .map((model) => model.trim())
+        .filter(Boolean),
+    ),
+  ];
 
   for (const model of models) {
     try {
@@ -74,9 +76,7 @@ export async function generateCoachReply(options: {
 
 function isAiBinding(value: unknown): value is GenericAiBinding {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof Reflect.get(value, "run") === "function"
+    typeof value === "object" && value !== null && typeof Reflect.get(value, "run") === "function"
   );
 }
 
