@@ -11,91 +11,134 @@ export async function generateCoachReply(options: {
   correlationId: string;
 }): Promise<string> {
   const fallback =
-    "המאמן האישי אינו זמין כרגע. אפשר עדיין להשתמש ביומן וביעדים, ולנסות שוב בעוד כמה דקות.";
+    "המאמן האישי אינו זמין כרגע. נסה שוב בעוד רגע — אם זה ממשיך, כדאי לבדוק את חיבור ה-AI.";
 
   if (options.env.AI_ENABLED !== "true" || !isAiBinding(options.env.AI)) {
     return fallback;
   }
 
-  try {
-    const raw = await options.env.AI.run(options.env.AI_STRONG_MODEL, {
-      messages: [
-        {
-          role: "system",
-          content:
-            "אתה מאמן תזונה כללי בעברית. היה ידידותי, מעשי ולא שיפוטי. אל תאבחן ואל תטפל במחלות. אל תמציא ערכים תזונתיים מדויקים. כאשר חסר מידע, אמור זאת בבירור. אל תשתמש בשפה של עונש, פיצוי או אוכל אסור.",
-        },
-        { role: "user", content: options.userMessage },
-      ],
-      max_completion_tokens: 700,
-      temperature: 0.35,
-      chat_template_kwargs: { thinking: false },
-    });
+  const models = [...new Set(
+    [options.env.AI_STRONG_MODEL, options.env.AI_FAST_MODEL]
+      .map((model) => model.trim())
+      .filter(Boolean),
+  )];
 
-    const response = extractText(raw);
-    if (!response) throw new Error("AI model returned no text");
-    return response;
-  } catch (error) {
-    logEvent({
-      severity: "error",
-      event: "coach_ai_failed",
-      correlationId: options.correlationId,
-      outcome: error instanceof Error ? error.name : "unknown",
-      retryable: true,
-      details: {
-        errorMessage:
-          error instanceof Error ? error.message.slice(0, 500) : "Unknown AI provider error",
-        model: options.env.AI_STRONG_MODEL,
-      },
-    });
-    return fallback;
+  for (const model of models) {
+    try {
+      const raw = await options.env.AI.run(model, {
+        messages: [
+          {
+            role: "system",
+            content:
+              "אתה המאמן האישי של אפליקציית 'רגע טוב'. ענה בעברית טבעית, חמה, מעשית ולא שיפוטית. אל תמציא נתונים ואל תשתמש בשפה של עונש, פיצוי או אוכל אסור.",
+          },
+          { role: "user", content: options.userMessage },
+        ],
+        max_tokens: 700,
+        temperature: 0.4,
+      });
+
+      const response = extractText(raw);
+      if (!response) throw new Error("AI model returned no readable text");
+
+      if (model !== options.env.AI_STRONG_MODEL) {
+        logEvent({
+          severity: "warning",
+          event: "coach_ai_fallback_model_succeeded",
+          correlationId: options.correlationId,
+          outcome: "success",
+          retryable: false,
+          details: { model, preferredModel: options.env.AI_STRONG_MODEL },
+        });
+      }
+
+      return response;
+    } catch (error) {
+      logEvent({
+        severity: "error",
+        event: "coach_ai_model_failed",
+        correlationId: options.correlationId,
+        outcome: error instanceof Error ? error.name : "unknown",
+        retryable: true,
+        details: {
+          errorMessage:
+            error instanceof Error ? error.message.slice(0, 500) : "Unknown AI provider error",
+          model,
+        },
+      });
+    }
   }
+
+  return fallback;
 }
 
 function isAiBinding(value: unknown): value is GenericAiBinding {
   return (
-    typeof value === "object" && value !== null && typeof Reflect.get(value, "run") === "function"
+    typeof value === "object" &&
+    value !== null &&
+    typeof Reflect.get(value, "run") === "function"
   );
-}
-
-function readUnknownField(value: object, key: string): unknown {
-  return (value as Record<string, unknown>)[key];
-}
-
-function isUnknownArray(value: unknown): value is unknown[] {
-  return Array.isArray(value);
 }
 
 function extractText(raw: unknown): string | null {
   if (typeof raw === "string") return raw.trim() || null;
-  if (typeof raw !== "object" || raw === null) return null;
+  if (!raw || typeof raw !== "object") return null;
 
-  const response = readUnknownField(raw, "response");
-  if (typeof response === "string") return response.trim() || null;
+  const record = raw as Record<string, unknown>;
 
-  const choices = readUnknownField(raw, "choices");
-  if (!isUnknownArray(choices) || choices.length === 0) return null;
+  for (const key of ["response", "output_text", "text"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
 
-  const first = choices[0];
-  if (typeof first !== "object" || first === null) return null;
-
-  const message = readUnknownField(first, "message");
-  if (typeof message === "object" && message !== null) {
-    const content = readUnknownField(message, "content");
-    if (typeof content === "string") return content.trim() || null;
-    if (isUnknownArray(content)) {
-      const combined = content
-        .map((part) => {
-          if (typeof part !== "object" || part === null) return "";
-          const text = readUnknownField(part, "text");
-          return typeof text === "string" ? text : "";
-        })
-        .join("")
-        .trim();
-      return combined || null;
+  if (record.result && typeof record.result === "object") {
+    const result = record.result as Record<string, unknown>;
+    for (const key of ["response", "output_text", "text", "content"]) {
+      const value = result[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
     }
   }
 
-  const text = readUnknownField(first, "text");
-  return typeof text === "string" && text.trim() ? text.trim() : null;
+  const choices =
+    Array.isArray(record.choices)
+      ? record.choices
+      : record.result &&
+          typeof record.result === "object" &&
+          Array.isArray((record.result as Record<string, unknown>).choices)
+        ? ((record.result as Record<string, unknown>).choices as unknown[])
+        : [];
+
+  const first = choices[0];
+  if (!first || typeof first !== "object") return null;
+
+  const choice = first as Record<string, unknown>;
+  const message = choice.message;
+  if (message && typeof message === "object") {
+    const content = (message as Record<string, unknown>).content;
+    const text = readContent(content);
+    if (text) return text;
+  }
+
+  return readContent(choice.text);
+}
+
+function readContent(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  if (!Array.isArray(value)) return null;
+
+  const combined = value
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (!part || typeof part !== "object") return "";
+      const record = part as Record<string, unknown>;
+      return typeof record.text === "string"
+        ? record.text
+        : typeof record.content === "string"
+          ? record.content
+          : "";
+    })
+    .join("")
+    .trim();
+
+  return combined || null;
 }
