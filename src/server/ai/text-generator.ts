@@ -160,9 +160,7 @@ function buildAttempts(
 
 function isAiBinding(value: unknown): value is GenericAiBinding {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof Reflect.get(value, "run") === "function"
+    typeof value === "object" && value !== null && typeof Reflect.get(value, "run") === "function"
   );
 }
 
@@ -240,8 +238,7 @@ function fromChoices(value: unknown): ExtractedCompletion {
   }
 
   const choice = first as Record<string, unknown>;
-  const finishReason =
-    typeof choice.finish_reason === "string" ? choice.finish_reason : null;
+  const finishReason = typeof choice.finish_reason === "string" ? choice.finish_reason : null;
 
   const message = choice.message;
   if (message && typeof message === "object") {
