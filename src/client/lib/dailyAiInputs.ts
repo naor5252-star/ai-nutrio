@@ -80,6 +80,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -370,7 +374,7 @@ function bodyHasAiFields(body: StoredBody): boolean {
   }
 
   const visit = (value: unknown): boolean => {
-    if (Array.isArray(value)) {
+    if (isUnknownArray(value)) {
       return value.some(visit);
     }
     if (!isRecord(value)) {
@@ -469,7 +473,7 @@ async function captureRequest(request: Request, init?: RequestInit) {
 }
 
 function extractJsonText(value: unknown): string {
-  if (Array.isArray(value)) {
+  if (isUnknownArray(value)) {
     for (const item of value) {
       const found = extractJsonText(item);
       if (found) return found;
@@ -527,7 +531,7 @@ function extractText(body: StoredBody): string {
 }
 
 function replaceJsonText(value: unknown, text: string): unknown {
-  if (Array.isArray(value)) {
+  if (isUnknownArray(value)) {
     let replaced = false;
     const next = value.map((item) => {
       if (replaced) return item;
@@ -622,7 +626,7 @@ async function fileToDataUrl(file: File) {
 }
 
 function replaceJsonImage(value: unknown, imageDataUrl: string): unknown {
-  if (Array.isArray(value)) {
+  if (isUnknownArray(value)) {
     let replaced = false;
     const next = value.map((item) => {
       if (replaced) return item;
