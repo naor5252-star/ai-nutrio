@@ -489,12 +489,12 @@ export function DiaryPage(): React.JSX.Element {
                 </div>
                 <div className="diary-entry__body">
                   {deleteError && (
-        <p className="form-error" role="alert">
-          {deleteError}
-        </p>
-      )}
+                    <p className="form-error" role="alert">
+                      {deleteError}
+                    </p>
+                  )}
 
-      {mergeMode && (
+                  {mergeMode && (
                     <label className="meal-merge-choice">
                       <input
                         type="checkbox"
