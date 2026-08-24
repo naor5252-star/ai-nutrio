@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiRequest, ClientApiError } from "../../app/api";
 import { compressImage } from "./image";
 import { queueCapture } from "../../offline/db";
+import { AnalysisQueue } from "./AnalysisQueue";
 
 type EntryMode = "choose" | "photo" | "text";
 
@@ -68,7 +69,11 @@ export function CapturePage(): React.JSX.Element {
       await apiRequest(`/api/v1/analysis/jobs/${job.jobId}/start`, {
         method: "POST",
       });
-      void navigate(`/analysis/${job.jobId}`);
+      setFiles([]);
+      previews.forEach((url) => URL.revokeObjectURL(url));
+      setPreviews([]);
+      setMode("choose");
+      void navigate("/add?queue=1", { replace: true });
     } catch (error) {
       setStatus(
         error instanceof ClientApiError
@@ -95,7 +100,9 @@ export function CapturePage(): React.JSX.Element {
         body: JSON.stringify({ clientMutationId: crypto.randomUUID(), text }),
       });
       setStatus("הבקשה התקבלה. עוברים למסך הניתוח…");
-      void navigate(`/analysis/${job.jobId}?source=text`);
+      setMealText("");
+      setMode("choose");
+      void navigate("/add?queue=1", { replace: true });
     } catch (error) {
       setStatus(
         error instanceof ClientApiError
@@ -141,6 +148,8 @@ export function CapturePage(): React.JSX.Element {
         <h1>{pageTitle(mode)}</h1>
         <p>{pageDescription(mode)}</p>
       </section>
+
+      {mode === "choose" && <AnalysisQueue />}
 
       {mode !== "choose" && (
         <button className="meal-entry-back" type="button" onClick={() => selectMode("choose")}>

@@ -16,6 +16,41 @@ export async function runCleanup(env: RuntimeEnv, correlationId: string): Promis
     );
     await env.DB.batch(statements);
   }
+
+  const analysisCutoff = new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString();
+  const expiredAnalyses = await env.DB.prepare(
+    "SELECT id FROM analysis_jobs WHERE created_at <= ? LIMIT 300",
+  )
+    .bind(analysisCutoff)
+    .all<{ id: string }>();
+
+  if (expiredAnalyses.results.length > 0) {
+    const analysisMedia = await env.DB.prepare(
+      `SELECT mo.id, mo.r2_object_key
+       FROM media_objects mo
+       JOIN analysis_job_images aji ON aji.media_object_id = mo.id
+       JOIN analysis_jobs aj ON aj.id = aji.analysis_job_id
+       WHERE aj.created_at <= ?
+       LIMIT 500`,
+    )
+      .bind(analysisCutoff)
+      .all<{ id: string; r2_object_key: string }>();
+
+    if (analysisMedia.results.length > 0) {
+      await env.MEDIA.delete(analysisMedia.results.map((item) => item.r2_object_key));
+      await env.DB.batch(
+        analysisMedia.results.map((item) =>
+          env.DB.prepare("DELETE FROM media_objects WHERE id = ?").bind(item.id),
+        ),
+      );
+    }
+
+    await env.DB.batch(
+      expiredAnalyses.results.map((item) =>
+        env.DB.prepare("DELETE FROM analysis_jobs WHERE id = ?").bind(item.id),
+      ),
+    );
+  }
   await env.DB.batch([
     env.DB.prepare("DELETE FROM ai_messages WHERE expires_at <= ?").bind(now),
     env.DB.prepare("DELETE FROM meal_revisions WHERE expires_at <= ?").bind(now),
@@ -39,7 +74,10 @@ export async function runCleanup(env: RuntimeEnv, correlationId: string): Promis
     event: "scheduled_cleanup_completed",
     correlationId,
     outcome: "success",
-    details: { deletedMedia: expiredMedia.results.length },
+    details: {
+      deletedMedia: expiredMedia.results.length,
+      deletedAnalyses: expiredAnalyses.results.length,
+    },
   });
 }
 

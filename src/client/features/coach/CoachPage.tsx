@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, ClientApiError } from "../../app/api";
 
@@ -12,10 +12,23 @@ function todayLocal(): string {
 
 type ChatEntry = { role: "user" | "assistant"; text: string };
 
+type TodayChat = {
+  localDate: string;
+  conversationId: string | null;
+  messages: Array<{
+    id: string;
+    role: "user" | "assistant";
+    text: string;
+    createdAt: string;
+  }>;
+};
+
 export function CoachPage(): React.JSX.Element {
   const [text, setText] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [entries, setEntries] = useState<ChatEntry[]>([]);
+  const [historyApplied, setHistoryApplied] = useState(false);
+
   const next = useQuery({
     queryKey: ["coach-next", todayLocal()],
     queryFn: () =>
@@ -23,6 +36,25 @@ export function CoachPage(): React.JSX.Element {
         `/api/v1/coach/next?date=${todayLocal()}`,
       ),
   });
+
+  const history = useQuery({
+    queryKey: ["coach-today", todayLocal()],
+    queryFn: () => apiRequest<TodayChat>("/api/v1/coach/today"),
+    staleTime: 15_000,
+  });
+
+  useEffect(() => {
+    if (!history.data || historyApplied) return;
+    setConversationId(history.data.conversationId);
+    setEntries(
+      history.data.messages.map((message) => ({
+        role: message.role,
+        text: message.text,
+      })),
+    );
+    setHistoryApplied(true);
+  }, [history.data, historyApplied]);
+
   const send = useMutation({
     mutationFn: (message: string) =>
       apiRequest<{ conversationId: string; response: string }>("/api/v1/coach/messages", {
@@ -52,8 +84,9 @@ export function CoachPage(): React.JSX.Element {
       <section className="page-title">
         <p className="eyebrow">הכוונה אישית</p>
         <h1>מה הצעד הבא?</h1>
-        <p>המלצות קצרות לפי מה שבחרת לשמור, לא לפי ניחושים.</p>
+        <p>השיחה נשמרת לאורך היום ומתחילה מחדש ביום חדש.</p>
       </section>
+
       {next.data && (
         <section className="coach-focus">
           <span>היום</span>
@@ -61,8 +94,9 @@ export function CoachPage(): React.JSX.Element {
           <p>{next.data.messageHe}</p>
         </section>
       )}
+
       <section className="prompt-starters" aria-label="שאלות מוצעות">
-        {["מה כדאי לאכול בהמשך?", "איך להוסיף יותר חלבון?", "תן לי רעיון לארוחה מהירה"].map(
+        {["מה כדאי לאכול בהמשך?", "איך נראה השבוע שלי?", "מה כדאי לשפר היום?"].map(
           (prompt) => (
             <button key={prompt} onClick={() => setText(prompt)}>
               {prompt}
@@ -70,11 +104,21 @@ export function CoachPage(): React.JSX.Element {
           ),
         )}
       </section>
-      <section className="coach-conversation" aria-live="polite">
-        {entries.length === 0 ? (
+
+      <section className="coach-conversation" aria-live="polite" aria-busy={send.isPending}>
+        {history.isLoading && entries.length === 0 ? (
+          <div className="coach-empty">
+            <div className="coach-thinking-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <p>טוען את השיחה של היום…</p>
+          </div>
+        ) : entries.length === 0 && !send.isPending ? (
           <div className="coach-empty">
             <span>↗</span>
-            <p>אפשר לשאול שאלה קצרה. התשובה תישען על היומן והיעדים שאישרת.</p>
+            <p>אפשר לשאול שאלה. השיחה הזו תישמר עד סוף היום.</p>
           </div>
         ) : (
           entries.map((entry, index) => (
@@ -87,12 +131,27 @@ export function CoachPage(): React.JSX.Element {
             </div>
           ))
         )}
+
+        {send.isPending && (
+          <div className="coach-entry coach-entry--assistant coach-entry--thinking" role="status">
+            <small>הכוונה</small>
+            <div className="coach-thinking-row">
+              <div className="coach-thinking-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+              <p>חושב ומנתח את הנתונים שלך…</p>
+            </div>
+          </div>
+        )}
       </section>
+
       <form
         className="coach-composer"
         onSubmit={(event) => {
           event.preventDefault();
-          if (text.trim()) send.mutate(text.trim());
+          if (text.trim() && !send.isPending) send.mutate(text.trim());
         }}
       >
         <label className="visually-hidden" htmlFor="coach-question">
@@ -104,11 +163,13 @@ export function CoachPage(): React.JSX.Element {
           value={text}
           onChange={(event) => setText(event.target.value)}
           placeholder="מה יעזור לך עכשיו?"
+          disabled={history.isLoading || send.isPending}
         />
-        <button type="submit" disabled={!text.trim() || send.isPending}>
-          שליחה
+        <button type="submit" disabled={!text.trim() || history.isLoading || send.isPending}>
+          {send.isPending ? "חושב…" : "שליחה"}
         </button>
       </form>
+
       <p className="fine-print">
         ההכוונה אינה אבחון או טיפול רפואי. במצב חירום יש לפנות לשירותי החירום המקומיים.
       </p>

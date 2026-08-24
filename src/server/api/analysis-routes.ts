@@ -126,6 +126,72 @@ analysisRoutes.post("/jobs/manual", requireCsrf, async (context) => {
   return context.json({ jobId, status: "needs_user_input" }, 201);
 });
 
+
+analysisRoutes.get("/jobs/recent", async (context) => {
+  const user = context.get("user");
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString();
+
+  const rows = await context.env.DB.prepare(
+    `SELECT aj.id, aj.status, aj.error_message_he, aj.analysis_version,
+            aj.created_at, aj.updated_at, aj.completed_at,
+            ar.result_json,
+            (SELECT COUNT(*) FROM analysis_job_images aji WHERE aji.analysis_job_id = aj.id) AS image_count,
+            (SELECT id FROM meals m WHERE m.analysis_job_id = aj.id AND m.owner_user_id = aj.owner_user_id LIMIT 1) AS meal_id
+     FROM analysis_jobs aj
+     LEFT JOIN analysis_results ar ON ar.analysis_job_id = aj.id
+     WHERE aj.owner_user_id = ? AND aj.created_at >= ?
+     ORDER BY aj.created_at DESC
+     LIMIT 40`,
+  )
+    .bind(user.id, cutoff)
+    .all<{
+      id: string;
+      status: string;
+      error_message_he: string | null;
+      analysis_version: string | null;
+      created_at: string;
+      updated_at: string;
+      completed_at: string | null;
+      result_json: string | null;
+      image_count: number;
+      meal_id: string | null;
+    }>();
+
+  return context.json({
+    items: rows.results
+      .filter((row) => row.analysis_version !== "manual-entry-v1")
+      .map((row) => {
+        let titleHe: string | null = null;
+
+        if (row.result_json) {
+          try {
+            const result = JSON.parse(row.result_json) as { suggestedTitleHe?: unknown };
+            if (typeof result.suggestedTitleHe === "string" && result.suggestedTitleHe.trim()) {
+              titleHe = result.suggestedTitleHe.trim().slice(0, 120);
+            }
+          } catch {
+            titleHe = null;
+          }
+        }
+
+        return {
+          id: row.id,
+          status: row.status,
+          source: row.image_count > 0 ? "photo" : "text",
+          titleHe: titleHe ?? (row.image_count > 0 ? "ארוחה מתמונה" : "תיאור ארוחה"),
+          errorMessageHe: row.error_message_he,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          completedAt: row.completed_at,
+          savedMealId: row.meal_id,
+          expiresAt: new Date(
+            Date.parse(row.created_at) + 24 * 60 * 60 * 1_000,
+          ).toISOString(),
+        };
+      }),
+  });
+});
+
 analysisRoutes.put("/jobs/:jobId/images/:index", requireCsrf, async (context) => {
   const user = context.get("user");
   const jobId = z.string().uuid().parse(context.req.param("jobId"));
@@ -248,6 +314,54 @@ analysisRoutes.get("/jobs/:jobId", async (context) => {
   });
 });
 
+
+analysisRoutes.delete("/jobs/:jobId", requireCsrf, async (context) => {
+  const user = context.get("user");
+  const jobId = z.string().uuid().parse(context.req.param("jobId"));
+
+  const job = await context.env.DB.prepare(
+    "SELECT id FROM analysis_jobs WHERE id = ? AND owner_user_id = ?",
+  )
+    .bind(jobId, user.id)
+    .first<{ id: string }>();
+
+  if (!job) {
+    throw new AppError({
+      status: 404,
+      code: "ANALYSIS_NOT_FOUND",
+      messageHe: "הניתוח לא נמצא",
+    });
+  }
+
+  const media = await context.env.DB.prepare(
+    `SELECT mo.id, mo.r2_object_key
+     FROM media_objects mo
+     JOIN analysis_job_images aji ON aji.media_object_id = mo.id
+     WHERE aji.analysis_job_id = ? AND mo.owner_user_id = ?`,
+  )
+    .bind(jobId, user.id)
+    .all<{ id: string; r2_object_key: string }>();
+
+  if (media.results.length > 0) {
+    await context.env.MEDIA.delete(media.results.map((item) => item.r2_object_key));
+    await context.env.DB.batch(
+      media.results.map((item) =>
+        context.env.DB.prepare(
+          "DELETE FROM media_objects WHERE id = ? AND owner_user_id = ?",
+        ).bind(item.id, user.id),
+      ),
+    );
+  }
+
+  await context.env.DB.prepare(
+    "DELETE FROM analysis_jobs WHERE id = ? AND owner_user_id = ?",
+  )
+    .bind(jobId, user.id)
+    .run();
+
+  return context.json({ ok: true });
+});
+
 analysisRoutes.post("/jobs/:jobId/confirm", requireCsrf, async (context) => {
   const user = context.get("user");
   const jobId = z.string().uuid().parse(context.req.param("jobId"));
@@ -259,6 +373,20 @@ analysisRoutes.post("/jobs/:jobId/confirm", requireCsrf, async (context) => {
     .first<{ status: string }>();
   if (!job)
     throw new AppError({ status: 404, code: "ANALYSIS_NOT_FOUND", messageHe: "הניתוח לא נמצא" });
+
+  const existingMeal = await context.env.DB.prepare(
+    "SELECT id, local_date FROM meals WHERE analysis_job_id = ? AND owner_user_id = ? LIMIT 1",
+  )
+    .bind(jobId, user.id)
+    .first<{ id: string; local_date: string }>();
+
+  if (existingMeal) {
+    return context.json(
+      { mealId: existingMeal.id, localDate: existingMeal.local_date, idempotentReplay: true },
+      200,
+    );
+  }
+
   if (!["needs_user_input", "completed"].includes(job.status)) {
     throw new AppError({
       status: 409,

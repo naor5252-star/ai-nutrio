@@ -66,6 +66,73 @@ coachRoutes.get("/next", async (context) => {
   });
 });
 
+
+coachRoutes.get("/today", async (context) => {
+  const user = context.get("user");
+  const timezoneRow = await context.env.DB.prepare(
+    "SELECT timezone FROM users WHERE id = ?",
+  )
+    .bind(user.id)
+    .first<{ timezone: string }>();
+
+  const timezone = timezoneRow?.timezone?.trim() || "Asia/Jerusalem";
+  const today = coachLocalDate(new Date(), timezone);
+
+  const conversations = await context.env.DB.prepare(
+    `SELECT id, created_at
+     FROM ai_conversations
+     WHERE owner_user_id = ?
+     ORDER BY created_at DESC
+     LIMIT 20`,
+  )
+    .bind(user.id)
+    .all<{ id: string; created_at: string }>();
+
+  const conversation =
+    conversations.results.find(
+      (item) => coachLocalDate(new Date(item.created_at), timezone) === today,
+    ) ?? null;
+
+  if (!conversation) {
+    return context.json({
+      localDate: today,
+      conversationId: null,
+      messages: [],
+    });
+  }
+
+  const messages = await context.env.DB.prepare(
+    `SELECT id, role, content_text, created_at
+     FROM ai_messages
+     WHERE conversation_id = ? AND owner_user_id = ?
+     ORDER BY created_at ASC`,
+  )
+    .bind(conversation.id, user.id)
+    .all<{ id: string; role: string; content_text: string; created_at: string }>();
+
+  return context.json({
+    localDate: today,
+    conversationId: conversation.id,
+    messages: messages.results
+      .filter(
+        (
+          message,
+        ): message is {
+          id: string;
+          role: "user" | "assistant";
+          content_text: string;
+          created_at: string;
+        } => message.role === "user" || message.role === "assistant",
+      )
+      .map((message) => ({
+        id: message.id,
+        role: message.role,
+        text: message.content_text,
+        createdAt: message.created_at,
+      })),
+  });
+});
+
 coachRoutes.post("/messages", requireCsrf, async (context) => {
   const input = z
     .object({
@@ -464,4 +531,19 @@ function coachRoundNullable(value: number | null): number | null {
 
 function coachRoundOne(value: number | null): number | null {
   return value === null ? null : Math.round(value * 10) / 10;
+}
+
+
+function coachLocalDate(date: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const get = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? "00";
+
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
