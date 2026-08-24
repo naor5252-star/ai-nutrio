@@ -56,11 +56,26 @@ export function CoachPage(): React.JSX.Element {
   }, [history.data, historyApplied]);
 
   const send = useMutation({
-    mutationFn: (message: string) =>
-      apiRequest<{ conversationId: string; response: string }>("/api/v1/coach/messages", {
-        method: "POST",
-        body: JSON.stringify({ conversationId, message }),
-      }),
+    mutationFn: async (message: string) => {
+      const clientRequestId = crypto.randomUUID();
+      const request = (): Promise<{ conversationId: string; response: string }> =>
+        apiRequest<{ conversationId: string; response: string }>("/api/v1/coach/messages", {
+          method: "POST",
+          body: JSON.stringify({ conversationId, clientRequestId, message }),
+        });
+
+      try {
+        return await request();
+      } catch (error) {
+        const shouldRetry =
+          !(error instanceof ClientApiError) || (error.retryable && error.status >= 500);
+
+        if (!shouldRetry) throw error;
+
+        await new Promise((resolve) => window.setTimeout(resolve, 700));
+        return request();
+      }
+    },
     onMutate: (message) => {
       setEntries((current) => [...current, { role: "user", text: message }]);
       setText("");
@@ -74,7 +89,10 @@ export function CoachPage(): React.JSX.Element {
         ...current,
         {
           role: "assistant",
-          text: error instanceof ClientApiError ? error.messageHe : "לא הצלחתי לענות כרגע",
+          text:
+            error instanceof ClientApiError
+              ? error.messageHe
+              : "החיבור נקטע בזמן שה־AI עבד. נסה שוב — ההודעה לא תישלח פעמיים.",
         },
       ]),
   });

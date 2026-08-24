@@ -6,6 +6,7 @@ import { addDaysIso, nowIso, parseJson } from "../repositories/db";
 import { secureUuid } from "../security/crypto";
 import { detectSafetyCategory, safetyResponseHe } from "../ai/safety";
 import { generateCoachReply } from "../ai/text-generator";
+import { logEvent } from "../services/logger";
 
 export const coachRoutes = new Hono<AppEnv>();
 coachRoutes.use("*", requireAuth);
@@ -134,12 +135,44 @@ coachRoutes.post("/messages", requireCsrf, async (context) => {
   const input = z
     .object({
       conversationId: z.string().uuid().nullable().optional(),
+      clientRequestId: z.string().uuid().optional(),
       message: z.string().trim().min(1).max(4_000),
     })
     .parse(await context.req.json());
   const user = context.get("user");
   const safety = detectSafetyCategory(input.message);
   const now = nowIso();
+  const idempotencyKey = input.clientRequestId
+    ? `coach:${user.id}:${input.clientRequestId}`
+    : null;
+
+  if (idempotencyKey) {
+    const replay = await context.env.DB.prepare(
+      `SELECT response_json
+       FROM idempotency_records
+       WHERE idempotency_key = ?
+         AND owner_user_id = ?
+         AND operation = 'coach_message'
+         AND expires_at > ?
+       LIMIT 1`,
+    )
+      .bind(idempotencyKey, user.id, now)
+      .first<{ response_json: string | null }>();
+
+    if (replay?.response_json) {
+      try {
+        return context.json(
+          JSON.parse(replay.response_json) as {
+            conversationId: string;
+            response: string;
+            safetyCategory: string | null;
+          },
+        );
+      } catch {
+        // Ignore a malformed stale replay and process a fresh request.
+      }
+    }
+  }
   const conversationId = input.conversationId ?? secureUuid();
   if (!input.conversationId) {
     await context.env.DB.prepare(
@@ -167,18 +200,38 @@ coachRoutes.post("/messages", requireCsrf, async (context) => {
   if (safety) {
     response = safetyResponseHe(safety);
   } else {
-    const [appDataContext, historyResult] = await Promise.all([
-      loadCoachWeekContext(context.env, user.id),
-      context.env.DB.prepare(
-        `SELECT role, content_text, created_at
-         FROM ai_messages
-         WHERE conversation_id = ? AND owner_user_id = ?
-         ORDER BY created_at DESC
-         LIMIT 12`,
-      )
-        .bind(conversationId, user.id)
-        .all<{ role: string; content_text: string; created_at: string }>(),
-    ]);
+    const historyResult = await context.env.DB.prepare(
+      `SELECT role, content_text, created_at
+       FROM ai_messages
+       WHERE conversation_id = ? AND owner_user_id = ?
+       ORDER BY created_at DESC
+       LIMIT 12`,
+    )
+      .bind(conversationId, user.id)
+      .all<{ role: string; content_text: string; created_at: string }>();
+
+    let appDataContext: unknown;
+
+    try {
+      appDataContext = await loadCoachWeekContext(context.env, user.id);
+    } catch (error) {
+      logEvent({
+        severity: "error",
+        event: "coach_week_context_failed",
+        correlationId: context.get("correlationId"),
+        outcome: "fallback_context",
+        retryable: true,
+        details: {
+          errorMessage:
+            error instanceof Error ? error.message.slice(0, 400) : "unknown context error",
+        },
+      });
+
+      appDataContext = await loadMinimalCoachContext(context.env, user.id).catch(() => ({
+        dataAvailable: false,
+        note: "נתוני האפליקציה לא היו זמינים לרגע. אין להמציא נתונים.",
+      }));
+    }
 
     const conversationHistory = [...historyResult.results]
       .reverse()
@@ -194,13 +247,30 @@ coachRoutes.post("/messages", requireCsrf, async (context) => {
         createdAt: message.created_at,
       }));
 
-    response = await generateCoachReply({
-      env: context.env,
-      userMessage: input.message,
-      correlationId: context.get("correlationId"),
-      appDataContext,
-      conversationHistory,
-    });
+    try {
+      response = await generateCoachReply({
+        env: context.env,
+        userMessage: input.message,
+        correlationId: context.get("correlationId"),
+        appDataContext,
+        conversationHistory,
+      });
+    } catch (error) {
+      logEvent({
+        severity: "error",
+        event: "coach_ai_unexpected_failure",
+        correlationId: context.get("correlationId"),
+        outcome: "safe_response",
+        retryable: true,
+        details: {
+          errorMessage:
+            error instanceof Error ? error.message.slice(0, 400) : "unknown AI error",
+        },
+      });
+
+      response =
+        "לא הצלחתי להשלים את התשובה הפעם. הנתונים שלך שמורים — נסה לשלוח שוב בעוד רגע.";
+    }
   }
   const expiresAt = addDaysIso(Number(context.env.CHAT_RETENTION_DAYS));
   const statements: D1PreparedStatement[] = [
@@ -221,8 +291,31 @@ coachRoutes.post("/messages", requireCsrf, async (context) => {
       ).bind(secureUuid(), user.id, safety, context.get("correlationId"), now),
     );
   }
+  const responsePayload = {
+    conversationId,
+    response,
+    safetyCategory: safety,
+  };
+
+  if (idempotencyKey) {
+    statements.push(
+      context.env.DB.prepare(
+        `INSERT OR REPLACE INTO idempotency_records
+         (idempotency_key, owner_user_id, operation, request_hash, response_status, response_json, expires_at, created_at)
+         VALUES (?, ?, 'coach_message', ?, 200, ?, ?, ?)`,
+      ).bind(
+        idempotencyKey,
+        user.id,
+        await coachRequestHash(input.message, input.conversationId ?? null),
+        JSON.stringify(responsePayload),
+        addDaysIso(1),
+        now,
+      ),
+    );
+  }
+
   await context.env.DB.batch(statements);
-  return context.json({ conversationId, response, safetyCategory: safety });
+  return context.json(responsePayload);
 });
 
 coachRoutes.delete("/memory", requireCsrf, async (context) => {
@@ -542,4 +635,63 @@ function coachLocalDate(date: Date, timezone: string): string {
     parts.find((part) => part.type === type)?.value ?? "00";
 
   return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+
+async function loadMinimalCoachContext(
+  env: RuntimeEnv,
+  userId: string,
+): Promise<unknown> {
+  const timezoneRow = await env.DB.prepare("SELECT timezone FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ timezone: string }>();
+
+  const timezone = timezoneRow?.timezone?.trim() || "Asia/Jerusalem";
+  const localDate = localDateForTimezone(new Date(), timezone);
+
+  const [target, totals] = await Promise.all([
+    env.DB.prepare(
+      `SELECT effective_calories, effective_protein_grams,
+              carbohydrate_grams, fat_grams, fiber_grams
+       FROM nutrition_target_versions
+       WHERE user_id = ?
+       ORDER BY effective_from DESC
+       LIMIT 1`,
+    )
+      .bind(userId)
+      .first<CoachTargetRow>(),
+    env.DB.prepare(
+      `SELECT
+         COALESCE(SUM(total_calories), 0) AS calories,
+         COALESCE(SUM(total_protein_grams), 0) AS protein,
+         COALESCE(SUM(total_carbohydrate_grams), 0) AS carbs,
+         COALESCE(SUM(total_fat_grams), 0) AS fat,
+         COALESCE(SUM(total_fiber_grams), 0) AS fiber,
+         COUNT(*) AS meal_count
+       FROM meals
+       WHERE owner_user_id = ? AND local_date = ?`,
+    )
+      .bind(userId, localDate)
+      .first<Omit<CoachMealDayRow, "local_date">>(),
+  ]);
+
+  return {
+    fallbackContext: true,
+    timezone,
+    localDate,
+    targets: target ?? null,
+    today: totals ?? null,
+  };
+}
+
+async function coachRequestHash(
+  message: string,
+  conversationId: string | null,
+): Promise<string> {
+  const bytes = new TextEncoder().encode(`${conversationId ?? "new"}\n${message}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }

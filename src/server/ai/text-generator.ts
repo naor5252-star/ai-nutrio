@@ -67,9 +67,16 @@ ${JSON.stringify(options.appDataContext)}`;
 
   const attempts = buildAttempts(options.env, messages);
 
+  if (attempts.length === 0) {
+    return fallback;
+  }
+
   for (const attempt of attempts) {
     try {
-      const raw = await options.env.AI.run(attempt.model, attempt.input);
+      const raw = await withTimeout(
+        options.env.AI.run(attempt.model, attempt.input),
+        attempt.label === "fast-primary" ? 22_000 : 30_000,
+      );
       const extracted = extractCompletion(raw);
 
       if (extracted.content) return extracted.content;
@@ -112,47 +119,66 @@ function buildAttempts(
   messages: Array<{ role: string; content: string }>,
 ): Attempt[] {
   const attempts: Attempt[] = [];
+  const fastModel =
+    typeof env.AI_FAST_MODEL === "string" ? env.AI_FAST_MODEL.trim() : "";
+  const strongModel =
+    typeof env.AI_STRONG_MODEL === "string" ? env.AI_STRONG_MODEL.trim() : "";
 
-  if (env.AI_FAST_MODEL.trim()) {
+  if (fastModel) {
     attempts.push({
-      model: env.AI_FAST_MODEL,
+      model: fastModel,
       label: "fast-primary",
       input: {
         messages,
-        max_completion_tokens: 1_100,
-        reasoning_effort: "low",
+        max_completion_tokens: 1_200,
         temperature: 0.35,
       },
     });
   }
 
-  if (env.AI_STRONG_MODEL.trim()) {
+  if (strongModel && strongModel !== fastModel) {
     attempts.push({
-      model: env.AI_STRONG_MODEL,
-      label: "strong-no-thinking",
+      model: strongModel,
+      label: "strong-fallback",
       input: {
         messages,
-        max_completion_tokens: 1_400,
-        reasoning_effort: "low",
+        max_completion_tokens: 1_500,
+        temperature: 0.3,
         chat_template_kwargs: { enable_thinking: false },
-        temperature: 0.35,
       },
     });
   }
 
-  if (env.AI_FAST_MODEL.trim()) {
+  if (fastModel) {
     attempts.push({
-      model: env.AI_FAST_MODEL,
+      model: fastModel,
       label: "fast-simple-retry",
       input: {
         messages,
-        max_completion_tokens: 1_600,
+        max_tokens: 900,
         temperature: 0.25,
       },
     });
   }
 
   return attempts;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`AI request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
 }
 
 function isAiBinding(value: unknown): value is GenericAiBinding {
