@@ -28,18 +28,8 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
-      - name: Format changed client files
-        shell: bash
-        run: |
-          mapfile -t files < <(
-            git show --pretty='' --name-only HEAD |
-            grep -E '^src/client/.*\.(ts|tsx|css)$' |
-            sort -u
-          )
-
-          if [ "${#files[@]}" -gt 0 ]; then
-            npx prettier --write "${files[@]}"
-          fi
+      - name: Format client
+        run: npx prettier --write src/client
 
       - name: Full CI
         run: npm run ci
@@ -58,3 +48,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy.yml --ref main
+
+# lint-retry: 2026-08-24T15:25:05Z

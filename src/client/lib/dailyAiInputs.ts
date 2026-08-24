@@ -171,8 +171,26 @@ async function deleteRecord(id: string) {
 
 async function listTodayRecords(): Promise<DailyAiInput[]> {
   await purgeOldRecords();
-  const all = await withStore<DailyAiInput[]>("readonly", (store) => store.getAll());
+  const all = await withStore<unknown[]>("readonly", (store) =>
+    store.getAll() as IDBRequest<unknown[]>,
+  );
   return all
+    .filter((item): item is DailyAiInput => {
+      if (!isRecord(item)) {
+        return false;
+      }
+
+      return (
+        typeof item.id === "string" &&
+        typeof item.dateKey === "string" &&
+        typeof item.createdAt === "string" &&
+        typeof item.url === "string" &&
+        typeof item.method === "string" &&
+        Array.isArray(item.headers) &&
+        isRecord(item.body) &&
+        typeof item.body.kind === "string"
+      );
+    })
     .filter((item) => item.dateKey === localDateKey())
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
@@ -494,8 +512,10 @@ function extractText(body: StoredBody): string {
       return preferred[1].value;
     }
 
-    const first = body.entries.find(([, value]) => value.kind === "text");
-    return first?.[1].kind === "text" ? first[1].value : "";
+    const first = body.entries.find(
+      (entry): entry is [string, StoredTextValue] => entry[1].kind === "text",
+    );
+    return first ? first[1].value : "";
   }
 
   if (body.kind === "urlSearchParams") {
@@ -585,7 +605,8 @@ function setText(body: StoredBody, text: string): StoredBody {
       entries.push(["text", text]);
     }
 
-    return { kind: "urlSearchParams", entries };
+    const nextBody: StoredBody = { kind: "urlSearchParams", entries };
+    return nextBody;
   }
 
   return body;
@@ -1012,35 +1033,39 @@ async function renderPanel(panel: HTMLElement) {
     status.className = "rega-ai-status";
     status.setAttribute("role", "status");
 
-    resend.addEventListener("click", async () => {
-      resend.disabled = true;
-      remove.disabled = true;
-      status.textContent = "שולחים…";
+    resend.addEventListener("click", () => {
+      void (async () => {
+        resend.disabled = true;
+        remove.disabled = true;
+        status.textContent = "שולחים…";
 
-      try {
-        await replayRecord(record, textarea.value, file.files?.[0]);
-        status.textContent = "נשלח ✓";
-        file.value = "";
-      } catch {
-        status.textContent = "השליחה נכשלה";
-      } finally {
-        resend.disabled = false;
-        remove.disabled = false;
-      }
+        try {
+          await replayRecord(record, textarea.value, file.files?.[0]);
+          status.textContent = "נשלח ✓";
+          file.value = "";
+        } catch {
+          status.textContent = "השליחה נכשלה";
+        } finally {
+          resend.disabled = false;
+          remove.disabled = false;
+        }
+      })();
     });
 
-    remove.addEventListener("click", async () => {
-      remove.disabled = true;
-      resend.disabled = true;
-      status.textContent = "מוחקים…";
+    remove.addEventListener("click", () => {
+      void (async () => {
+        remove.disabled = true;
+        resend.disabled = true;
+        status.textContent = "מוחקים…";
 
-      try {
-        await deleteRecord(record.id);
-      } catch {
-        status.textContent = "המחיקה נכשלה";
-        remove.disabled = false;
-        resend.disabled = false;
-      }
+        try {
+          await deleteRecord(record.id);
+        } catch {
+          status.textContent = "המחיקה נכשלה";
+          remove.disabled = false;
+          resend.disabled = false;
+        }
+      })();
     });
 
     row.append(resend, remove, status);
