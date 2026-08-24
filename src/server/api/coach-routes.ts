@@ -142,9 +142,7 @@ coachRoutes.post("/messages", requireCsrf, async (context) => {
   const user = context.get("user");
   const safety = detectSafetyCategory(input.message);
   const now = nowIso();
-  const idempotencyKey = input.clientRequestId
-    ? `coach:${user.id}:${input.clientRequestId}`
-    : null;
+  const idempotencyKey = input.clientRequestId ? `coach:${user.id}:${input.clientRequestId}` : null;
 
   if (idempotencyKey) {
     const replay = await context.env.DB.prepare(
@@ -263,13 +261,11 @@ coachRoutes.post("/messages", requireCsrf, async (context) => {
         outcome: "safe_response",
         retryable: true,
         details: {
-          errorMessage:
-            error instanceof Error ? error.message.slice(0, 400) : "unknown AI error",
+          errorMessage: error instanceof Error ? error.message.slice(0, 400) : "unknown AI error",
         },
       });
 
-      response =
-        "לא הצלחתי להשלים את התשובה הפעם. הנתונים שלך שמורים — נסה לשלוח שוב בעוד רגע.";
+      response = "לא הצלחתי להשלים את התשובה הפעם. הנתונים שלך שמורים — נסה לשלוח שוב בעוד רגע.";
     }
   }
   const expiresAt = addDaysIso(Number(context.env.CHAT_RETENTION_DAYS));
@@ -637,11 +633,7 @@ function coachLocalDate(date: Date, timezone: string): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-
-async function loadMinimalCoachContext(
-  env: RuntimeEnv,
-  userId: string,
-): Promise<unknown> {
+async function loadMinimalCoachContext(env: RuntimeEnv, userId: string): Promise<unknown> {
   const timezoneRow = await env.DB.prepare("SELECT timezone FROM users WHERE id = ?")
     .bind(userId)
     .first<{ timezone: string }>();
@@ -684,10 +676,7 @@ async function loadMinimalCoachContext(
   };
 }
 
-async function coachRequestHash(
-  message: string,
-  conversationId: string | null,
-): Promise<string> {
+async function coachRequestHash(message: string, conversationId: string | null): Promise<string> {
   const bytes = new TextEncoder().encode(`${conversationId ?? "new"}\n${message}`);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
 

@@ -119,10 +119,8 @@ function buildAttempts(
   messages: Array<{ role: string; content: string }>,
 ): Attempt[] {
   const attempts: Attempt[] = [];
-  const fastModel =
-    typeof env.AI_FAST_MODEL === "string" ? env.AI_FAST_MODEL.trim() : "";
-  const strongModel =
-    typeof env.AI_STRONG_MODEL === "string" ? env.AI_STRONG_MODEL.trim() : "";
+  const fastModel = typeof env.AI_FAST_MODEL === "string" ? env.AI_FAST_MODEL.trim() : "";
+  const strongModel = typeof env.AI_STRONG_MODEL === "string" ? env.AI_STRONG_MODEL.trim() : "";
 
   if (fastModel) {
     attempts.push({
