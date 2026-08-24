@@ -175,8 +175,9 @@ async function deleteRecord(id: string) {
 
 async function listTodayRecords(): Promise<DailyAiInput[]> {
   await purgeOldRecords();
-  const all = await withStore<unknown[]>("readonly", (store) =>
-    store.getAll() as IDBRequest<unknown[]>,
+  const all = await withStore<unknown[]>(
+    "readonly",
+    (store) => store.getAll() as IDBRequest<unknown[]>,
   );
   return all
     .filter((item): item is DailyAiInput => {
@@ -211,16 +212,9 @@ function rememberRuntimeAuthHeaders(headers: Headers) {
 }
 
 function safeHeaders(headers: Headers) {
-  const allowed = new Set([
-    "accept",
-    "content-type",
-    "x-csrf-token",
-    "x-requested-with",
-  ]);
+  const allowed = new Set(["accept", "content-type", "x-csrf-token", "x-requested-with"]);
 
-  return Array.from(headers.entries()).filter(([name]) =>
-    allowed.has(name.toLowerCase()),
-  );
+  return Array.from(headers.entries()).filter(([name]) => allowed.has(name.toLowerCase()));
 }
 
 function parseJsonText(text: string) {
@@ -352,17 +346,12 @@ function hasImageLikeKey(key: string) {
 function bodyHasAiFields(body: StoredBody): boolean {
   if (body.kind === "formData") {
     return body.entries.some(
-      ([key, value]) =>
-        hasTextLikeKey(key) ||
-        hasImageLikeKey(key) ||
-        value.kind === "file",
+      ([key, value]) => hasTextLikeKey(key) || hasImageLikeKey(key) || value.kind === "file",
     );
   }
 
   if (body.kind === "urlSearchParams") {
-    return body.entries.some(
-      ([key]) => hasTextLikeKey(key) || hasImageLikeKey(key),
-    );
+    return body.entries.some(([key]) => hasTextLikeKey(key) || hasImageLikeKey(key));
   }
 
   if (body.kind === "blob") {
@@ -382,10 +371,7 @@ function bodyHasAiFields(body: StoredBody): boolean {
     }
 
     return Object.entries(value).some(
-      ([key, child]) =>
-        hasTextLikeKey(key) ||
-        hasImageLikeKey(key) ||
-        visit(child),
+      ([key, child]) => hasTextLikeKey(key) || hasImageLikeKey(key) || visit(child),
     );
   };
 
@@ -583,12 +569,8 @@ function setText(body: StoredBody, text: string): StoredBody {
   }
 
   if (body.kind === "formData") {
-    const entries = body.entries.map(
-      ([key, value]) => [key, value] as [string, StoredFormValue],
-    );
-    const index = entries.findIndex(
-      ([key, value]) => hasTextLikeKey(key) && value.kind === "text",
-    );
+    const entries = body.entries.map(([key, value]) => [key, value] as [string, StoredFormValue]);
+    const index = entries.findIndex(([key, value]) => hasTextLikeKey(key) && value.kind === "text");
 
     if (index >= 0) {
       entries[index] = [entries[index]![0], { kind: "text", value: text }];
@@ -661,9 +643,7 @@ function replaceJsonImage(value: unknown, imageDataUrl: string): unknown {
 
 async function setImage(body: StoredBody, file: File): Promise<StoredBody> {
   if (body.kind === "formData") {
-    const entries = body.entries.map(
-      ([key, value]) => [key, value] as [string, StoredFormValue],
-    );
+    const entries = body.entries.map(([key, value]) => [key, value] as [string, StoredFormValue]);
     const storedFile: StoredFileValue = {
       kind: "file",
       name: file.name || "image",
@@ -729,10 +709,7 @@ async function setImage(body: StoredBody, file: File): Promise<StoredBody> {
   return body;
 }
 
-function headersForReplay(
-  storedHeaders: Array<[string, string]>,
-  body: StoredBody,
-): Headers {
+function headersForReplay(storedHeaders: Array<[string, string]>, body: StoredBody): Headers {
   const headers = new Headers(storedHeaders);
 
   for (const [name, value] of runtimeAuthHeaders) {
@@ -1149,15 +1126,7 @@ function mountUi() {
 
 function scheduleMidnightPurge() {
   const now = new Date();
-  const tomorrow = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1,
-    0,
-    0,
-    2,
-    0,
-  );
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 2, 0);
   const delay = Math.max(1000, tomorrow.getTime() - now.getTime());
 
   window.setTimeout(() => {
