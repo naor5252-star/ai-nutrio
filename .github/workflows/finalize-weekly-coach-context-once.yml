@@ -1,11 +1,11 @@
-name: Finalize coach reasoning fix once
+name: Finalize weekly coach context once
 
 on:
   push:
     branches:
       - main
     paths:
-      - ".github/workflows/finalize-coach-reasoning-fix-once.yml"
+      - ".github/workflows/finalize-weekly-coach-context-once.yml"
 
 permissions:
   contents: write
@@ -14,7 +14,6 @@ permissions:
 jobs:
   finalize:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,7 +28,10 @@ jobs:
       - run: npm ci --no-audit --no-fund
 
       - name: Format
-        run: npx prettier --write src/server/ai/text-generator.ts
+        run: |
+          npx prettier --write \
+            src/server/api/coach-routes.ts \
+            src/server/ai/text-generator.ts
 
       - name: Full CI
         run: npm run ci
@@ -38,9 +40,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/server/ai/text-generator.ts
-          git rm .github/workflows/finalize-coach-reasoning-fix-once.yml
-          git commit -m "Finalize coach reasoning output fix"
+          git add src/server/api/coach-routes.ts src/server/ai/text-generator.ts
+          git rm .github/workflows/finalize-weekly-coach-context-once.yml
+          git commit -m "Finalize weekly AI coach context"
           git push origin HEAD:main
 
       - name: Deploy
