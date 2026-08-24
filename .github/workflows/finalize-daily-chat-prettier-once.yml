@@ -1,0 +1,66 @@
+name: Finalize daily chat prettier once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/finalize-daily-chat-prettier-once.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Format all files touched by the feature
+        run: |
+          npx prettier --write \
+            src/client/features/coach/CoachPage.tsx \
+            src/client/features/capture/AnalysisQueue.tsx \
+            src/client/features/capture/CapturePage.tsx \
+            src/server/api/analysis-routes.ts \
+            src/server/api/coach-routes.ts \
+            src/server/scheduled/cleanup.ts \
+            src/client/styles/global.css
+
+      - name: Full CI
+        run: npm run ci
+
+      - name: Commit formatted result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            src/client/features/coach/CoachPage.tsx \
+            src/client/features/capture/AnalysisQueue.tsx \
+            src/client/features/capture/CapturePage.tsx \
+            src/server/api/analysis-routes.ts \
+            src/server/api/coach-routes.ts \
+            src/server/scheduled/cleanup.ts \
+            src/client/styles/global.css
+
+          git rm .github/workflows/finalize-daily-chat-prettier-once.yml
+          git commit -m "Finalize daily chat and queue formatting"
+          git push origin HEAD:main
+
+      - name: Trigger deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main
