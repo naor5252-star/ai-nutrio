@@ -2638,3 +2638,13 @@ summary {
 .analysis-queue-card__actions button:first-child {
   flex: 1;
 }
+
+.meal-delete-action {
+  color: #a5382f;
+  border-color: color-mix(in srgb, #a5382f 30%, transparent);
+}
+
+.meal-delete-action:hover,
+.meal-delete-action:focus-visible {
+  background: color-mix(in srgb, #a5382f 8%, transparent);
+}

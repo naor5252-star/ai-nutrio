@@ -87,6 +87,7 @@ export function DiaryPage(): React.JSX.Element {
   const [mergeMode, setMergeMode] = useState(false);
   const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
   const [mergeError, setMergeError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["meals", date],
@@ -95,6 +96,27 @@ export function DiaryPage(): React.JSX.Element {
   const favorite = useMutation({
     mutationFn: (id: string) => apiRequest(`/api/v1/meals/${id}/favorite`, { method: "POST" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["meals", date] }),
+  });
+
+  const deleteMeal = useMutation({
+    mutationFn: (id: string) =>
+      apiRequest<{ ok: true }>(`/api/v1/meals/${id}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async (_result, deletedId) => {
+      setDeleteError(null);
+      setSelectedMealIds((current) => current.filter((id) => id !== deletedId));
+      setEditDraft((current) => (current?.id === deletedId ? null : current));
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["meals"] }),
+        queryClient.invalidateQueries({ queryKey: ["coach-next"] }),
+        queryClient.invalidateQueries({ queryKey: ["analysis-queue"] }),
+      ]);
+    },
+    onError: () => {
+      setDeleteError("לא הצלחנו למחוק את הארוחה. נסה שוב.");
+    },
   });
   const mergeMeals = useMutation({
     mutationFn: (mealIds: string[]) =>
@@ -466,7 +488,13 @@ export function DiaryPage(): React.JSX.Element {
                   <span />
                 </div>
                 <div className="diary-entry__body">
-                  {mergeMode && (
+                  {deleteError && (
+        <p className="form-error" role="alert">
+          {deleteError}
+        </p>
+      )}
+
+      {mergeMode && (
                     <label className="meal-merge-choice">
                       <input
                         type="checkbox"
@@ -497,6 +525,25 @@ export function DiaryPage(): React.JSX.Element {
                       </button>
                       <button onClick={() => favorite.mutate(meal.id)}>
                         {meal.favorite ? "מועדף" : "שמירה כמועדף"}
+                      </button>
+                      <button
+                        type="button"
+                        className="meal-delete-action"
+                        disabled={deleteMeal.isPending}
+                        onClick={() => {
+                          setDeleteError(null);
+                          if (
+                            window.confirm(
+                              `למחוק את "${meal.title}" מהיומן? הפעולה תסיר את הארוחה והערכים שלה מהיום.`,
+                            )
+                          ) {
+                            deleteMeal.mutate(meal.id);
+                          }
+                        }}
+                      >
+                        {deleteMeal.isPending && deleteMeal.variables === meal.id
+                          ? "מוחקים…"
+                          : "מחיקה"}
                       </button>
                     </div>
                   )}
