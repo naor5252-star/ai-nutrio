@@ -591,7 +591,7 @@ function setText(body: StoredBody, text: string): StoredBody {
     );
 
     if (index >= 0) {
-      entries[index] = [entries[index][0], { kind: "text", value: text }];
+      entries[index] = [entries[index]![0], { kind: "text", value: text }];
     } else {
       entries.push(["text", { kind: "text", value: text }]);
     }
@@ -604,7 +604,7 @@ function setText(body: StoredBody, text: string): StoredBody {
     const index = entries.findIndex(([key]) => hasTextLikeKey(key));
 
     if (index >= 0) {
-      entries[index] = [entries[index][0], text];
+      entries[index] = [entries[index]![0], text];
     } else {
       entries.push(["text", text]);
     }
@@ -677,7 +677,7 @@ async function setImage(body: StoredBody, file: File): Promise<StoredBody> {
     );
 
     if (index >= 0) {
-      entries[index] = [entries[index][0], storedFile];
+      entries[index] = [entries[index]![0], storedFile];
     } else {
       entries.push(["image", storedFile]);
     }
@@ -708,7 +708,7 @@ async function setImage(body: StoredBody, file: File): Promise<StoredBody> {
     const index = entries.findIndex(([key]) => hasImageLikeKey(key));
 
     if (index >= 0) {
-      entries[index] = [entries[index][0], imageDataUrl];
+      entries[index] = [entries[index]![0], imageDataUrl];
     } else {
       entries.push(["image", imageDataUrl]);
     }
@@ -1007,7 +1007,8 @@ async function renderPanel(panel: HTMLElement) {
     time.dateTime = record.createdAt;
     time.textContent = formatTime(record.createdAt);
 
-    meta.append(label, time);
+    meta.appendChild(label);
+    meta.appendChild(time);
 
     const textarea = document.createElement("textarea");
     textarea.value = extractText(record.body);
@@ -1072,8 +1073,13 @@ async function renderPanel(panel: HTMLElement) {
       })();
     });
 
-    row.append(resend, remove, status);
-    card.append(meta, textarea, file, row);
+    row.appendChild(resend);
+    row.appendChild(remove);
+    row.appendChild(status);
+    card.appendChild(meta);
+    card.appendChild(textarea);
+    card.appendChild(file);
+    card.appendChild(row);
     list.appendChild(card);
   }
 }
@@ -1111,9 +1117,12 @@ function mountUi() {
   const list = document.createElement("div");
   list.className = "rega-ai-list";
 
-  head.append(title, close);
-  panel.append(head, list);
-  document.body.append(button, panel);
+  head.appendChild(title);
+  head.appendChild(close);
+  panel.appendChild(head);
+  panel.appendChild(list);
+  document.body.appendChild(button);
+  document.body.appendChild(panel);
 
   const setOpen = async (open: boolean) => {
     panel.hidden = !open;
@@ -1173,7 +1182,7 @@ function installCapture() {
     try {
       request =
         input instanceof Request
-          ? new Request(input.clone(), init)
+          ? new Request(input.clone() as unknown as RequestInfo, init)
           : new Request(input, init);
       rememberRuntimeAuthHeaders(request.headers);
     } catch {
