@@ -173,7 +173,6 @@ coachRoutes.delete("/memory", requireCsrf, async (context) => {
   return context.json({ ok: true });
 });
 
-
 type CoachUserRow = {
   timezone: string;
   display_name: string | null;
