@@ -25,9 +25,7 @@ export function AnalysisQueue(): React.JSX.Element | null {
     queryKey: ["analysis-queue"],
     queryFn: () => apiRequest<QueueResponse>("/api/v1/analysis/jobs/recent"),
     refetchInterval: (state) =>
-      (state.state.data?.items ?? []).some((item) => ACTIVE.has(item.status))
-        ? 2_500
-        : false,
+      (state.state.data?.items ?? []).some((item) => ACTIVE.has(item.status)) ? 2_500 : false,
     refetchOnMount: "always",
   });
 
@@ -131,9 +129,6 @@ function openLabel(item: QueueItem): string {
 }
 
 function expiryLabel(expiresAt: string): string {
-  const hours = Math.max(
-    1,
-    Math.ceil((Date.parse(expiresAt) - Date.now()) / (60 * 60 * 1_000)),
-  );
+  const hours = Math.max(1, Math.ceil((Date.parse(expiresAt) - Date.now()) / (60 * 60 * 1_000)));
   return hours === 1 ? "בעוד כשעה" : `בעוד כ־${hours} שעות`;
 }

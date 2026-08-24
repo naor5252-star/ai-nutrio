@@ -96,13 +96,11 @@ export function CoachPage(): React.JSX.Element {
       )}
 
       <section className="prompt-starters" aria-label="שאלות מוצעות">
-        {["מה כדאי לאכול בהמשך?", "איך נראה השבוע שלי?", "מה כדאי לשפר היום?"].map(
-          (prompt) => (
-            <button key={prompt} onClick={() => setText(prompt)}>
-              {prompt}
-            </button>
-          ),
-        )}
+        {["מה כדאי לאכול בהמשך?", "איך נראה השבוע שלי?", "מה כדאי לשפר היום?"].map((prompt) => (
+          <button key={prompt} onClick={() => setText(prompt)}>
+            {prompt}
+          </button>
+        ))}
       </section>
 
       <section className="coach-conversation" aria-live="polite" aria-busy={send.isPending}>

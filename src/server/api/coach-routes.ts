@@ -66,12 +66,9 @@ coachRoutes.get("/next", async (context) => {
   });
 });
 
-
 coachRoutes.get("/today", async (context) => {
   const user = context.get("user");
-  const timezoneRow = await context.env.DB.prepare(
-    "SELECT timezone FROM users WHERE id = ?",
-  )
+  const timezoneRow = await context.env.DB.prepare("SELECT timezone FROM users WHERE id = ?")
     .bind(user.id)
     .first<{ timezone: string }>();
 
@@ -532,7 +529,6 @@ function coachRoundNullable(value: number | null): number | null {
 function coachRoundOne(value: number | null): number | null {
   return value === null ? null : Math.round(value * 10) / 10;
 }
-
 
 function coachLocalDate(date: Date, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {

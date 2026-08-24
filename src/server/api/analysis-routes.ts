@@ -126,7 +126,6 @@ analysisRoutes.post("/jobs/manual", requireCsrf, async (context) => {
   return context.json({ jobId, status: "needs_user_input" }, 201);
 });
 
-
 analysisRoutes.get("/jobs/recent", async (context) => {
   const user = context.get("user");
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString();
@@ -184,9 +183,7 @@ analysisRoutes.get("/jobs/recent", async (context) => {
           updatedAt: row.updated_at,
           completedAt: row.completed_at,
           savedMealId: row.meal_id,
-          expiresAt: new Date(
-            Date.parse(row.created_at) + 24 * 60 * 60 * 1_000,
-          ).toISOString(),
+          expiresAt: new Date(Date.parse(row.created_at) + 24 * 60 * 60 * 1_000).toISOString(),
         };
       }),
   });
@@ -314,7 +311,6 @@ analysisRoutes.get("/jobs/:jobId", async (context) => {
   });
 });
 
-
 analysisRoutes.delete("/jobs/:jobId", requireCsrf, async (context) => {
   const user = context.get("user");
   const jobId = z.string().uuid().parse(context.req.param("jobId"));
@@ -346,16 +342,15 @@ analysisRoutes.delete("/jobs/:jobId", requireCsrf, async (context) => {
     await context.env.MEDIA.delete(media.results.map((item) => item.r2_object_key));
     await context.env.DB.batch(
       media.results.map((item) =>
-        context.env.DB.prepare(
-          "DELETE FROM media_objects WHERE id = ? AND owner_user_id = ?",
-        ).bind(item.id, user.id),
+        context.env.DB.prepare("DELETE FROM media_objects WHERE id = ? AND owner_user_id = ?").bind(
+          item.id,
+          user.id,
+        ),
       ),
     );
   }
 
-  await context.env.DB.prepare(
-    "DELETE FROM analysis_jobs WHERE id = ? AND owner_user_id = ?",
-  )
+  await context.env.DB.prepare("DELETE FROM analysis_jobs WHERE id = ? AND owner_user_id = ?")
     .bind(jobId, user.id)
     .run();
 
