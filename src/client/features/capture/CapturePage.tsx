@@ -95,7 +95,7 @@ export function CapturePage(): React.JSX.Element {
     setBusy(true);
     setStatus("ה־AI מפרק את התיאור לרכיבי ארוחה…");
     try {
-      const job = await apiRequest<{ jobId: string }>("/api/v1/analysis/jobs/text", {
+      await apiRequest<{ jobId: string }>("/api/v1/analysis/jobs/text", {
         method: "POST",
         body: JSON.stringify({ clientMutationId: crypto.randomUUID(), text }),
       });

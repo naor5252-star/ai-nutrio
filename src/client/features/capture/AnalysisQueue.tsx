@@ -81,7 +81,9 @@ export function AnalysisQueue(): React.JSX.Element | null {
             <div className="analysis-queue-card__actions">
               <button
                 type="button"
-                onClick={() => navigate(`/analysis/${item.id}?source=${item.source}`)}
+                onClick={() => {
+                  void navigate(`/analysis/${item.id}?source=${item.source}`);
+                }}
               >
                 {openLabel(item)}
               </button>
